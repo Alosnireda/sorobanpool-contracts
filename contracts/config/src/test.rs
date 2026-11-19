@@ -73,3 +73,57 @@ fn registries() {
     c.set_address(&symbol_short!("x"), &a);
     assert_eq!(c.get_address(&symbol_short!("x")), a);
 }
+
+#[test]
+fn snapshot_matches_individual_views() {
+    let (e, c, admin) = setup();
+    // un-paused baseline: snapshot params equal get_params, all flags false
+    let snap = c.snapshot();
+    let p = c.get_params();
+    assert_eq!(snap.params.platform_fee_bp, p.platform_fee_bp);
+    assert_eq!(snap.params.max_members_per_pool, p.max_members_per_pool);
+    assert!(!snap.paused_all);
+    assert!(!snap.paused_create);
+    assert!(!snap.paused_commit);
+    assert!(!snap.paused_accept);
+    assert_eq!(snap.paused_create, c.is_paused(&symbol_short!("create")));
+    assert_eq!(snap.paused_commit, c.is_paused(&symbol_short!("commit")));
+    assert_eq!(snap.paused_accept, c.is_paused(&symbol_short!("accept")));
+
+    // pause "commit" individually
+    c.pause(&admin, &symbol_short!("commit"));
+    let snap2 = c.snapshot();
+    assert!(!snap2.paused_all);
+    assert!(!snap2.paused_create);
+    assert!(snap2.paused_commit);
+    assert!(!snap2.paused_accept);
+    assert_eq!(snap2.paused_commit, c.is_paused(&symbol_short!("commit")));
+    assert_eq!(snap2.paused_create, c.is_paused(&symbol_short!("create")));
+
+    // pause "all" — all scope flags should become true
+    c.pause(&admin, &symbol_short!("all"));
+    let snap3 = c.snapshot();
+    assert!(snap3.paused_all);
+    assert!(snap3.paused_create);
+    assert!(snap3.paused_commit);
+    assert!(snap3.paused_accept);
+
+    // unpause "all": flags go back to their own storage values
+    c.unpause(&symbol_short!("all"));
+    let snap4 = c.snapshot();
+    assert!(!snap4.paused_all);
+    assert!(!snap4.paused_create);
+    assert!(snap4.paused_commit); // still paused from earlier
+    assert!(!snap4.paused_accept);
+
+    // params roundtrip through set_params
+    let mut np = c.get_params();
+    np.platform_fee_bp = 200;
+    c.set_params(&np);
+    let snap5 = c.snapshot();
+    assert_eq!(snap5.params.platform_fee_bp, 200);
+    assert_eq!(snap5.params.platform_fee_bp, c.get_params().platform_fee_bp);
+    // pause flags still match after params change
+    assert_eq!(snap5.paused_commit, c.is_paused(&symbol_short!("commit")));
+    assert_eq!(snap5.paused_create, c.is_paused(&symbol_short!("create")));
+}
