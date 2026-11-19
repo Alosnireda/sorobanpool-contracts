@@ -1,7 +1,7 @@
 use scenarios::*;
 use soroban_sdk::testutils::{Address as _, Events as _};
 use soroban_sdk::{symbol_short, Address};
-use sp_common::types::{PoolState, Role};
+use sp_common::types::{caps, PoolState, Role};
 
 #[test]
 fn shortfall_is_allocated_pro_rata_and_supplier_paid_for_received_only() {
@@ -303,4 +303,112 @@ fn settled_pool_updates_reputation() {
     assert_eq!((s.pools_settled, s.on_time, s.late), (1, 1, 0));
     assert_eq!(c.rep.stats(&c.organizer, &Role::Organizer).pools_settled, 1);
     assert_eq!(c.rep.stats(&t[0], &Role::Trader).pickups_confirmed, 1);
+}
+
+// ── Issue #138: fill_deadline boundary tests ──────────────────────────────────
+
+/// Helper: attempt create_pool with the given fill_deadline and return the error
+/// code if the call fails, or None if it succeeds.
+fn try_dl(c: &scenarios::Ctx, deadline: u64) -> Option<u32> {
+    use soroban_sdk::testutils::arbitrary::std::Error as SdkError;
+    c.gb.try_create_pool(
+        &c.organizer,
+        &c.terms(),
+        &h(&c.env, 7),
+        &0,
+        &None,
+        &deadline,
+    )
+    .err()
+    .map(|e| e.map(|ce| ce.to_val().get_minor()).unwrap_or(0))
+}
+
+#[test]
+fn fill_deadline_equal_to_now_is_rejected_with_deadline_in_past() {
+    let c = setup();
+    // fill_deadline == now: not strictly in the future.
+    let err = try_dl(&c, c.now());
+    assert_eq!(err, Some(group_buy::Error::DeadlineInPast as u32));
+}
+
+#[test]
+fn fill_deadline_one_second_after_now_is_accepted() {
+    let c = setup();
+    // The smallest valid deadline: now + 1.
+    assert!(c
+        .gb
+        .try_create_pool(
+            &c.organizer,
+            &c.terms(),
+            &h(&c.env, 7),
+            &0,
+            &None,
+            &(c.now() + 1),
+        )
+        .is_ok());
+}
+
+#[test]
+fn fill_deadline_at_max_window_is_accepted() {
+    let c = setup();
+    // Default max_fill_window_secs is 7 days; deadline == now + window is valid.
+    let p = c.cfg.get_params();
+    let at_cap = c.now() + p.max_fill_window_secs;
+    assert!(c
+        .gb
+        .try_create_pool(
+            &c.organizer,
+            &c.terms(),
+            &h(&c.env, 7),
+            &0,
+            &None,
+            &at_cap,
+        )
+        .is_ok());
+}
+
+#[test]
+fn fill_deadline_one_second_beyond_max_window_is_rejected_with_deadline_too_far() {
+    let c = setup();
+    let p = c.cfg.get_params();
+    let beyond = c.now() + p.max_fill_window_secs + 1;
+    let err = try_dl(&c, beyond);
+    assert_eq!(err, Some(group_buy::Error::DeadlineTooFar as u32));
+}
+
+#[test]
+fn fill_deadline_errors_are_distinct() {
+    // DeadlineInPast and DeadlineTooFar must have different discriminants so the
+    // frontend and backend can route them to different messages.
+    assert_ne!(
+        group_buy::Error::DeadlineInPast as u32,
+        group_buy::Error::DeadlineTooFar as u32,
+    );
+}
+
+#[test]
+fn max_fill_window_can_be_raised_to_14_day_hard_cap() {
+    let c = setup();
+    // Raise max_fill_window_secs to the 14-day hard cap.
+    let mut p = c.cfg.get_params();
+    p.max_fill_window_secs = caps::FILL_WINDOW_SECS; // 14 * 24 * 3600
+    c.cfg.set_params(&p);
+
+    // A deadline right at the new cap must succeed.
+    let at_hard_cap = c.now() + caps::FILL_WINDOW_SECS;
+    assert!(c
+        .gb
+        .try_create_pool(
+            &c.organizer,
+            &c.terms(),
+            &h(&c.env, 7),
+            &0,
+            &None,
+            &at_hard_cap,
+        )
+        .is_ok());
+
+    // One second beyond the hard cap must still fail (DeadlineTooFar).
+    let err = try_dl(&c, at_hard_cap + 1);
+    assert_eq!(err, Some(group_buy::Error::DeadlineTooFar as u32));
 }
