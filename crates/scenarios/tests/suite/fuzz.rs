@@ -3,8 +3,38 @@
 //! with a typed contract error, never a host panic.
 use proptest::prelude::*;
 use scenarios::*;
-use soroban_sdk::Address;
+use soroban_sdk::testutils::Events as _;
+use soroban_sdk::{symbol_short, Address, IntoVal, Val};
 use sp_common::types::PoolState;
+
+/// Collect every address that the escrow contract (`gb_id`) transferred tokens *to*.
+///
+/// The Stellar Asset Contract emits a `transfer` event with topics
+/// `[Symbol("transfer"), from: Address, to: Address]`.  We filter to transfers
+/// whose `from` is the group_buy contract so we only examine escrow outflows.
+fn escrow_outflow_destinations(c: &Ctx, gb_id: &Address) -> Vec<Address> {
+    let transfer_sym: Val = symbol_short!("transfer").into_val(&c.env);
+    c.env
+        .events()
+        .all()
+        .iter()
+        .filter_map(|(_contract, topics, _data)| {
+            if topics.len() < 3 {
+                return None;
+            }
+            // topic[0] must be the "transfer" symbol
+            if topics.get_unchecked(0) != transfer_sym {
+                return None;
+            }
+            // topic[1] is `from` — only care about outflows from escrow
+            let from = Address::try_from_val(&c.env, &topics.get_unchecked(1)).ok()?;
+            if &from != gb_id {
+                return None;
+            }
+            Address::try_from_val(&c.env, &topics.get_unchecked(2)).ok()
+        })
+        .collect()
+}
 
 #[derive(Debug, Clone)]
 enum Op {
@@ -83,6 +113,136 @@ proptest! {
         prop_assert_eq!(total(&c), start);
         prop_assert_eq!(c.bal(&c.gb.address), 0);
     }
+}
+
+// ── #156: escrow outflows must only reach the allowed destination set ─────────
+//
+// Allowed recipients of a transfer *from* the group_buy escrow:
+//   • members      — refunds (tier credit, shortfall, expiry, failure)
+//   • supplier     — net payment at settle
+//   • organizer    — organizer fee at settle
+//   • treasury     — platform fee at settle (and dust sweep)
+//
+// No other address may ever receive a transfer originating from escrow.
+// This property is checked over random commit/increase/withdraw sequences
+// that run the pool to completion (Settled, Expired, or Failed).
+
+proptest! {
+    #![proptest_config(ProptestConfig::with_cases(30))]
+
+    #[test]
+    fn escrow_only_pays_allowed_destinations(
+        ops in proptest::collection::vec(op(), 1..20),
+        received_pct in 0u32..=100,
+    ) {
+        let c = setup();
+        let pool = c.pool(100);
+        let members: Vec<Address> = (0..6).map(|_| c.trader()).collect();
+
+        // Allowed set: every address that may legitimately receive escrow funds.
+        let allowed: std::collections::HashSet<Address> = members
+            .iter()
+            .cloned()
+            .chain([
+                c.supplier.clone(),
+                c.organizer.clone(),
+                c.treasury.clone(),
+            ])
+            .collect();
+
+        let gb_id = c.gb.address.clone();
+
+        for o in &ops {
+            match o {
+                Op::Commit(i, u)   => typed(c.gb.try_commit(&members[*i], &pool, u))?,
+                Op::Increase(i, u) => typed(c.gb.try_increase(&members[*i], &pool, u))?,
+                Op::Withdraw(i)    => typed(c.gb.try_withdraw_commitment(&members[*i], &pool))?,
+                Op::Advance(s)     => c.advance(*s),
+            }
+        }
+
+        c.advance(4 * DAY);
+        typed(c.gb.try_close(&pool))?;
+        let p = c.gb.pool(&pool);
+        if p.state == PoolState::Filled {
+            if c.gb.try_accept(&c.supplier, &pool, &0).is_ok() {
+                c.gb.dispatch(&c.supplier, &pool, &None);
+                let received = (p.total_units as u64 * received_pct as u64 / 100) as u32;
+                c.gb.confirm_delivery(&c.organizer, &pool, &received, &h(&c.env, 5));
+                c.gb.allocate_shortfall(&pool, &50);
+                c.advance(48 * 3600);
+                c.gb.settle(&pool);
+            } else {
+                c.gb.fail_accept(&pool);
+            }
+        }
+        c.gb.push_refunds(&pool, &50);
+        c.gb.sweep_dust(&pool);
+
+        // Assert: every address that received tokens from escrow is in the allowed set.
+        for dest in escrow_outflow_destinations(&c, &gb_id) {
+            prop_assert!(
+                allowed.contains(&dest),
+                "escrow paid an unexpected destination: {:?}",
+                dest
+            );
+        }
+    }
+}
+
+/// Crafted bad-destination regression: a manually constructed scenario that
+/// exercises every outflow path (refund, tier-credit, settle, dust sweep) and
+/// verifies none reaches an address outside the allowed set.
+#[test]
+fn escrow_outflows_cover_all_paths_and_stay_in_allowed_set() {
+    let c = setup();
+    let pool = c.pool(100); // 1% organizer fee
+
+    let members: Vec<Address> = (0..4).map(|_| c.trader()).collect();
+
+    let allowed: std::collections::HashSet<Address> = members
+        .iter()
+        .cloned()
+        .chain([
+            c.supplier.clone(),
+            c.organizer.clone(),
+            c.treasury.clone(),
+        ])
+        .collect();
+
+    let gb_id = c.gb.address.clone();
+
+    // Commit across two tiers so a tier-credit refund is triggered at settle.
+    c.gb.commit(&members[0], &pool, &100); // tier 1 price
+    c.gb.commit(&members[1], &pool, &100); // still tier 1
+    c.gb.commit(&members[2], &pool, &100); // crosses into tier 2 (200 units)
+    c.gb.commit(&members[3], &pool, &120); // crosses into tier 3 (420 units)
+
+    c.advance(3 * DAY);
+    c.gb.close(&pool);
+
+    // Shortfall delivery: supplier delivers 400 of 420 → 20-unit shortfall refund.
+    c.gb.accept(&c.supplier, &pool, &0);
+    c.gb.dispatch(&c.supplier, &pool, &None);
+    c.gb.confirm_delivery(&c.organizer, &pool, &400, &h(&c.env, 5));
+    c.gb.allocate_shortfall(&pool, &50);
+    c.advance(48 * 3600);
+    c.gb.settle(&pool);
+
+    // Pull refunds for all members (tier credits + shortfall credits).
+    for m in &members {
+        c.gb.claim_refund(&pool, m);
+    }
+    c.gb.sweep_dust(&pool);
+
+    for dest in escrow_outflow_destinations(&c, &gb_id) {
+        assert!(
+            allowed.contains(&dest),
+            "escrow paid an unexpected destination: {dest:?}"
+        );
+    }
+    // Escrow must be empty after all exits.
+    assert_eq!(c.bal(&c.gb.address), 0);
 }
 
 /// Regression from a CI fuzz seed: a pool that fills early and then idles past the accept window cannot be accepted;
