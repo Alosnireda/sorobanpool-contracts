@@ -43,6 +43,14 @@ export const Errors = {
 }
 
 
+export interface ConfigSnapshot {
+  params: Params;
+  paused_all: boolean;
+  paused_create: boolean;
+  paused_commit: boolean;
+  paused_accept: boolean;
+}
+
 export interface Params {
   accept_window_secs: u64;
   advance_enabled: boolean;
@@ -67,6 +75,11 @@ export interface Params {
 }
 
 export interface Client {
+  /**
+   * Returns params and all pause-scope flags in one RPC call.
+   */
+  snapshot: (options?: MethodOptions) => Promise<AssembledTransaction<ConfigSnapshot>>
+
   /**
    * Construct and simulate a usdc transaction. Returns an `AssembledTransaction` object which will have a `result` field containing the result of the simulation. If this transaction changes contract state, you will need to call `signAndSend()` on the returned object.
    */
@@ -204,7 +217,8 @@ export class Client extends ContractClient {
     )
   }
   public readonly fromJSON = {
-    usdc: this.txFromJSON<string>,
+    snapshot: this.txFromJSON<ConfigSnapshot>,
+        usdc: this.txFromJSON<string>,
         admin: this.txFromJSON<string>,
         pause: this.txFromJSON<null>,
         unpause: this.txFromJSON<null>,
