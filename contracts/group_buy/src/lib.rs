@@ -21,7 +21,8 @@ pub enum Error {
     BadTerms = 302,
     CategoryNotAllowed = 303,
     NotVerified = 304,
-    BadDeadline = 305,
+    DeadlineInPast = 305,
+    DeadlineTooFar = 346,
     FeeTooHigh = 306,
     PoolTooLarge = 307,
     PoolNotFound = 308,
@@ -455,8 +456,11 @@ impl GroupBuy {
             fail::<()>(&env, Error::FeeTooHigh);
         }
         let t = now(&env);
-        if fill_deadline <= t || fill_deadline > t + params.max_fill_window_secs {
-            fail::<()>(&env, Error::BadDeadline);
+        if fill_deadline <= t {
+            fail::<()>(&env, Error::DeadlineInPast);
+        }
+        if fill_deadline > t + params.max_fill_window_secs {
+            fail::<()>(&env, Error::DeadlineTooFar);
         }
         let reg = registry(&env);
         if reg.status(&organizer, &Role::Organizer) != Status::Verified

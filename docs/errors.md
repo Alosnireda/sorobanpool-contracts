@@ -22,7 +22,8 @@ Generated from the `Error` enums in each contract (namespaced: config 100s, regi
 | 302 | group_buy | BadTerms |
 | 303 | group_buy | CategoryNotAllowed |
 | 304 | group_buy | NotVerified |
-| 305 | group_buy | BadDeadline |
+| 305 | group_buy | DeadlineInPast |
+| 346 | group_buy | DeadlineTooFar |
 | 306 | group_buy | FeeTooHigh |
 | 307 | group_buy | PoolTooLarge |
 | 308 | group_buy | PoolNotFound |
