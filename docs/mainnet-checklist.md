@@ -11,6 +11,7 @@ What is done, what is left, and who owns the parts this repository cannot finish
 - [ ] Coverage-guided fuzzing (cargo-fuzz, needs nightly Rust) as a follow-up to the property-based fuzzing already in place.
 - [ ] Admin key: must be a real multisig before mainnet (see threat model).
 - [ ] `smart_wallet` (ADR 0006) is new code that holds user funds: include it in the audit scope.
+- [x] Incident response runbook written and testnet dry-run completed: [`docs/runbooks/incident-response.md`](runbooks/incident-response.md). Covers pause scope selection, emergency upgrade (multisig required), parameter tuning, and what stays available to users during a pause.
 
 ## Backend
 - [x] API, indexer, keeper jobs (close/fail/allocate/settle/push-refunds/dispute-timeout), ttl-extend, maintenance (offer expiry, sponsor-balance alert, deadline reminders, reconcile), notifier (SMS queue, quiet hours, retries).
