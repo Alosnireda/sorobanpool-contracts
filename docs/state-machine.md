@@ -1,5 +1,7 @@
 # Pool state machine
 
+> For step-by-step sequence diagrams of each flow (happy path, expiry, shortfall, dispute, supplier failure) see [`docs/flows.md`](flows.md).
+
 ```
 Open ──close/close_early/max reached──▶ Filled ──accept──▶ Accepted ──dispatch──▶ Dispatched
  │                                        │                  │                        │

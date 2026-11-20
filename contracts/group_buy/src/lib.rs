@@ -21,7 +21,8 @@ pub enum Error {
     BadTerms = 302,
     CategoryNotAllowed = 303,
     NotVerified = 304,
-    BadDeadline = 305,
+    DeadlineInPast = 305,
+    DeadlineTooFar = 346,
     FeeTooHigh = 306,
     PoolTooLarge = 307,
     PoolNotFound = 308,
@@ -455,8 +456,11 @@ impl GroupBuy {
             fail::<()>(&env, Error::FeeTooHigh);
         }
         let t = now(&env);
-        if fill_deadline <= t || fill_deadline > t + params.max_fill_window_secs {
-            fail::<()>(&env, Error::BadDeadline);
+        if fill_deadline <= t {
+            fail::<()>(&env, Error::DeadlineInPast);
+        }
+        if fill_deadline > t + params.max_fill_window_secs {
+            fail::<()>(&env, Error::DeadlineTooFar);
         }
         let reg = registry(&env);
         if reg.status(&organizer, &Role::Organizer) != Status::Verified
@@ -1065,6 +1069,13 @@ impl GroupBuy {
     }
 
     /// Sends rounding dust (escrow beyond what is still owed) to the treasury.
+    ///
+    /// Requires the pool to be in a final-refundable state **and** have no
+    /// frozen funds (`frozen_amount == 0`).  A non-zero `frozen_amount` means
+    /// at least one dispute is still unresolved: the frozen slice is money that
+    /// may yet be owed to a member or supplier, so sweeping it would be a loss
+    /// (#139).  Call `resolve` (or `timeout`) on every open dispute before
+    /// sweeping.  Idempotent: returns 0 when no dust remains.
     pub fn sweep_dust(env: Env, pool_id: u64) -> i128 {
         let mut pool = load_pool(&env, pool_id);
         if !is_final_refundable(&pool.state) || pool.frozen_amount != 0 {
@@ -1257,6 +1268,25 @@ impl GroupBuy {
         let remaining_members = pool.listed_members.saturating_sub(pool.refund_cursor);
         let remaining_amount = (pool.owed_total - pool.refunds_paid).max(0);
         (remaining_members, remaining_amount)
+    /// Read-only escrow invariant check for external monitoring (issue #143).
+    ///
+    /// Returns `(expected, actual)` where:
+    ///
+    /// - `expected` = `(owed_total − refunds_paid) + frozen_amount`
+    ///   — the minimum the contract must hold: outstanding refund obligations
+    ///   plus amounts frozen in open disputes.
+    /// - `actual`   = `escrow_balance`
+    ///   — tokens the contract currently holds for this pool.
+    ///
+    /// A healthy pool satisfies `actual >= expected`.  Any breach means tokens
+    /// have been released in excess of what the invariant allows.
+    ///
+    /// Does not mutate state and reads only the pool storage entry.
+    pub fn escrow_invariant(env: Env, pool_id: u64) -> (i128, i128) {
+        let pool = load_pool(&env, pool_id);
+        let outstanding = pool.owed_total.saturating_sub(pool.refunds_paid);
+        let expected = outstanding.saturating_add(pool.frozen_amount);
+        (expected, pool.escrow_balance)
     }
 }
 

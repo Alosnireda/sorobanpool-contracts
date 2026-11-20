@@ -13,12 +13,23 @@ Trust boundaries: contracts are the source of truth for escrow; the backend cann
 | Re-claiming the same units (found in the Nov 2026 review) | One dispute per party per pool, open or resolved (`AlreadyDisputed`, 412). Before the fix a member could open many disputes over one allocation and, if the arbiter missed the SLA, have each time out in their favour, draining the supplier's payable. Regression tests: `crates/scenarios/tests/suite/hardening.rs` | A party who finds a second defect later adds evidence to the dispute they already opened |
 | Repeat supplier failure | Two failures (reject, `fail_accept`, `fail_delivery`) within 90 days suspend the supplier in `registry` (`fail_90d`), so no new pool can name them; running pools and all member exits are unaffected | Admin `unsuspend` after review |
 | Supplier no-show with advance | Bond ≥ outstanding advances; `fail_delivery` slashes the bond into escrow; advances disabled in v1 | Bond slashing caps at the bond held |
-| Attestor key compromise | Attestor can only call `registry.attest`; admin can revoke; backend daily caps and spike alerts | Fake verifications until revoked |
+| Attestor key compromise | Attestor can only call `registry.attest`; admin can revoke via `config.set_attestor(addr, false)`; backend daily caps and spike alerts | Fake verifications until revoked |
+| Revoked attestor — policy for existing attestations | When an attestor is disabled with `config.set_attestor(addr, false)`, the attestor can no longer call `registry.attest` (rejected with `NotAttestor`). Existing `Verified` records written by that attestor are **not erased** — they remain on-chain because (a) the users they describe may be innocent, (b) erasure would block live pool activity for already-committed members, and (c) admin already has `registry.revoke` to remove individual records selectively. If the compromise is widespread, admin should suspend affected users individually. Regression test: `crates/scenarios/tests/suite/hardening.rs` (`revoked_attestor_cannot_attest_but_existing_records_remain`) | Records attested before revocation remain valid; admin must audit and individually revoke any fraudulent verifications |
 | FX movement between offer refresh and pool close | Prices fixed in USDC at pool creation; short fill windows; disclosed | Supplier bears or passes on naira FX risk |
 | Supplier/organizer race at the delivery deadline | Documented in `state-machine.md` | First caller wins |
 | Admin key / upgrade abuse | Admin should be a multisig; `upgrade` emits an event; hard caps live in contract code | Upgrade authority is powerful |
 | Re-entrancy via token callbacks | State is updated before transfers; USDC is a Stellar Asset Contract | – |
 | Storage archival of live data | TTL bumping on touch plus backend job | A pool left untouched for long periods needs the keeper |
 | Dust theft | `sweep_dust` only moves escrow beyond `owed_total − refunds_paid`, blocked while anything is frozen | – |
+| Escrow funds reach an arbitrary address | Every token transfer originating from the group_buy escrow must go to one of: the pool's members, the supplier, the organizer, or the treasury. This is a hard invariant: no other address is a valid recipient, regardless of operation sequence. Property-tested over random sequences in `crates/scenarios/tests/suite/fuzz.rs` (`escrow_only_pays_allowed_destinations`, `escrow_outflows_cover_all_paths_and_stay_in_allowed_set`). The harness intercepts all SAC `transfer` events whose `from` equals the escrow address and asserts `to ∈ {members} ∪ {supplier, organizer, treasury}`. | – |
 
-Covered since: resource budget tests at a 200-member pool (`crates/scenarios/tests/suite/budget.rs`), ≥90% line coverage on `group_buy`/`disputes`/`supplier_bond` enforced in CI, randomised operation-sequence fuzzing (`crates/scenarios/tests/suite/fuzz.rs`). Not covered yet: external audit, formal verification, coverage-guided fuzzing (needs nightly Rust).
+**Allowed escrow outflow destinations** (formal list for the allowlist harness):
+
+| Recipient | Payment reason |
+|---|---|
+| Pool members | Refund on expiry, failure, tier-credit, or shortfall |
+| Supplier | Net payment at `settle` (units delivered × final price, minus fees) |
+| Organizer | Organizer fee at `settle` |
+| Treasury | Platform fee at `settle`; dust via `sweep_dust` |
+
+Covered since: resource budget tests at a 200-member pool (`crates/scenarios/tests/suite/budget.rs`), ≥90% line coverage on `group_buy`/`disputes`/`supplier_bond` enforced in CI, randomised operation-sequence fuzzing (`crates/scenarios/tests/suite/fuzz.rs`), escrow-destination allowlist property tests (`crates/scenarios/tests/suite/fuzz.rs` #156). Not covered yet: external audit, formal verification, coverage-guided fuzzing (needs nightly Rust).

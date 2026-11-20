@@ -26,3 +26,30 @@ Gross 336; platform 5.04; organizer 3.36; supplier 327.60 + (advance 0). Refunds
 - `RefundPool`: whole claim shared pro-rata by units (floor; remainder stays as unswept dust).
 
 **Dust.** Only the floor remainder of `RefundPool` shares can remain; `sweep_dust` sends escrow beyond `owed_total − refunds_paid` to the treasury once nothing is frozen.
+
+## Escrow invariant (issue #143)
+
+At every reachable state the following must hold:
+
+```
+escrow_balance  >=  (owed_total − refunds_paid)  +  frozen_amount
+```
+
+| Term | Meaning |
+|---|---|
+| `escrow_balance` | Tokens the contract currently holds for the pool |
+| `owed_total − refunds_paid` | Outstanding refund obligations not yet paid out |
+| `frozen_amount` | Tokens locked in open disputes |
+
+The right-hand side is the **minimum** the contract must hold.  Any breach means tokens
+were released in excess of obligations and must be treated as a critical (P0) incident.
+
+**After full settlement and `sweep_dust`** both sides equal zero: all obligations are paid,
+all dust is swept, and the contract holds nothing for that pool.
+
+**Read-only view:** `group_buy.escrow_invariant(pool_id) -> (expected, actual)` returns
+both sides of the inequality without mutating state.  The reconcile backend job and any
+external monitor should call this view after every block that touches the pool.
+
+**Property test:** `crates/scenarios/tests/suite/properties.rs::escrow_invariant_holds_in_all_states`
+asserts `actual >= expected` after every operation in a random commit/deliver/settle sequence.

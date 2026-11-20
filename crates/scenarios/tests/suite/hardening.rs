@@ -1,5 +1,6 @@
 //! Regression tests for fund-safety findings from the November 2026 internal review (brief section 15, M6).
 use scenarios::*;
+use soroban_sdk::Address;
 use sp_common::types::{DisputeReason, Outcome, PoolState, Role, Status};
 
 const PRICE: i128 = USDC * 8 / 10;
@@ -149,4 +150,47 @@ fn failures_more_than_90_days_apart_do_not_suspend() {
     c.fill_standard(p2);
     c.gb.reject(&c.supplier, &p2);
     assert_eq!(c.reg.status(&c.supplier, &Role::Supplier), Status::Verified);
+}
+
+// ── Issue #148: revoked attestor ──────────────────────────────────────────────
+
+/// A disabled attestor must not be able to write new attestations, but any
+/// records it wrote before revocation must remain intact (see docs/threat-model.md).
+#[test]
+fn revoked_attestor_cannot_attest_but_existing_records_remain() {
+    let c = setup();
+
+    // 1. Attestor writes a Verified record for a fresh user.
+    let user = c.trader();
+    assert_eq!(c.reg.status(&user, &Role::Trader), Status::Verified);
+
+    // 2. Disable the attestor in config.
+    c.cfg.set_attestor(&c.attestor, &false);
+    assert!(!c.cfg.is_attestor(&c.attestor));
+
+    // 3. The existing attestation must still be in place — revocation is
+    //    not retroactive.
+    assert_eq!(
+        c.reg.status(&user, &Role::Trader),
+        Status::Verified,
+        "existing Verified record must survive attestor revocation"
+    );
+
+    // 4. The disabled attestor must not be able to attest a new user.
+    let new_user = Address::generate(&c.env);
+    c.reg.register(&new_user, &Role::Trader, &h(&c.env, 1), &None);
+    let result = c
+        .reg
+        .try_attest(&c.attestor, &new_user, &Role::Trader, &h(&c.env, 2), &1);
+    assert!(
+        result.is_err(),
+        "disabled attestor must be refused on a new attest call"
+    );
+
+    // 5. The new user's record must remain Registered (not Verified).
+    assert_eq!(
+        c.reg.status(&new_user, &Role::Trader),
+        Status::Registered,
+        "new user must not be Verified after a failed attest from a revoked attestor"
+    );
 }

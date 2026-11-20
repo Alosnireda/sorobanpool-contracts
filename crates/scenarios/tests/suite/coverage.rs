@@ -2,7 +2,7 @@
 use scenarios::*;
 use soroban_sdk::testutils::Address as _;
 use soroban_sdk::Address;
-use sp_common::types::PoolState;
+use sp_common::types::{DisputeReason, Outcome, PoolState};
 
 #[test]
 fn views_report_consistent_figures() {
@@ -142,4 +142,102 @@ fn double_pickup_confirmation_is_rejected() {
     c.deliver(pool, 420);
     c.gb.confirm_pickup(&t[0], &pool);
     assert!(c.gb.try_confirm_pickup(&t[0], &pool).is_err());
+}
+
+/// #139 — sweep_dust is blocked while a dispute is open (frozen_amount > 0).
+/// Token conservation: the contract balance after the dispute is resolved and
+/// all refunds are claimed must be exactly zero.
+#[test]
+fn sweep_dust_blocked_while_dispute_unresolved_then_zero_after_resolution() {
+    let c = setup();
+    let pool = c.pool(0);
+    let t = c.fill_standard(pool);
+    c.deliver(pool, 420);
+
+    // Open a dispute — this freezes a portion of the escrow.
+    let dispute_id = c
+        .dis
+        .open(&t[0], &pool, &DisputeReason::Damaged, &10, &h(&c.env, 3));
+    let frozen = c.gb.pool(&pool).frozen_amount;
+    assert!(frozen > 0, "opening a dispute must freeze funds");
+
+    // Pool is not yet final (still Delivered), so sweep must fail on state.
+    assert!(
+        c.gb.try_sweep_dust(&pool).is_err(),
+        "sweep_dust must be blocked before the pool is settled"
+    );
+
+    // Settle the pool — the frozen slice is withheld so frozen_amount stays non-zero.
+    c.advance(48 * 3600);
+    c.gb.settle(&pool);
+    assert!(
+        c.gb.try_sweep_dust(&pool).is_err(),
+        "sweep_dust must be blocked while frozen_amount > 0"
+    );
+
+    // Resolve the dispute in the member's favour (partial credit).
+    c.dis
+        .resolve(&c.arbiter, &dispute_id, &Outcome::RefundMember(5), &h(&c.env, 4));
+    assert_eq!(
+        c.gb.pool(&pool).frozen_amount,
+        0,
+        "resolving the dispute must clear frozen_amount"
+    );
+
+    // All members claim their refunds.
+    let mut total_refunded: i128 = 0;
+    for m in &t {
+        total_refunded += c.gb.claim_refund(m, &pool);
+    }
+    assert!(total_refunded > 0, "members must receive refunds after settlement");
+
+    // Now sweep is allowed and moves only true rounding dust (may be zero).
+    let dust = c.gb.sweep_dust(&pool);
+    assert!(dust >= 0, "dust must be non-negative");
+
+    // Token conservation: nothing left in the contract.
+    assert_eq!(
+        c.bal(&c.gb.address),
+        0,
+        "contract balance must be zero after all refunds and sweep"
+    );
+}
+
+/// #139 — repeated sweeps on an already-swept pool move zero tokens.
+/// A second sweep is harmless and returns 0 without panicking.
+#[test]
+fn repeated_sweep_dust_moves_zero() {
+    let c = setup();
+    let pool = c.pool(0);
+    let t = c.fill_standard(pool);
+    c.deliver(pool, 420);
+
+    // Open and immediately resolve a dispute so the pool ends up clean.
+    let dispute_id = c
+        .dis
+        .open(&t[1], &pool, &DisputeReason::Short, &5, &h(&c.env, 3));
+    c.dis
+        .resolve(&c.arbiter, &dispute_id, &Outcome::RefundMember(5), &h(&c.env, 4));
+
+    c.advance(48 * 3600);
+    c.gb.settle(&pool);
+
+    // Drain all refunds.
+    for m in &t {
+        c.gb.claim_refund(m, &pool);
+    }
+
+    // First sweep: takes whatever dust remains (may be zero).
+    let first = c.gb.sweep_dust(&pool);
+    assert!(first >= 0);
+
+    // Second sweep on the same pool: must return 0 and not transfer any tokens.
+    let treasury_before = c.bal(c.cfg.treasury());
+    let second = c.gb.sweep_dust(&pool);
+    assert_eq!(second, 0, "second sweep must return zero");
+    assert_eq!(
+        c.bal(c.cfg.treasury()),
+        treasury_before,
+        "second sweep must not move any tokens to treasury"
+    );
 }

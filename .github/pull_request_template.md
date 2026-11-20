@@ -12,3 +12,4 @@
 - [ ] Docs updated (README, state machine, events/errors, API, i18n EN + PCM)
 - [ ] No secrets, no PII in logs or on-chain
 - [ ] Pricing vectors updated if the math changed
+- [ ] If a new contract function was added: followed [docs/adding-a-function.md](../docs/adding-a-function.md) (bindings regenerated, artifacts exported, downstream issues opened)

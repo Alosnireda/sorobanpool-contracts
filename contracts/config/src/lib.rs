@@ -6,6 +6,17 @@ use soroban_sdk::{
 use sp_common::events::emit;
 use sp_common::types::{caps, Params};
 
+/// Returned by `snapshot()`: params plus a flag for each supported pause scope.
+#[contracttype]
+#[derive(Clone, Debug)]
+pub struct ConfigSnapshot {
+    pub params: Params,
+    pub paused_all: bool,
+    pub paused_create: bool,
+    pub paused_commit: bool,
+    pub paused_accept: bool,
+}
+
 #[contracterror]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 #[repr(u32)]
@@ -246,6 +257,28 @@ impl Config {
                 .unwrap_or(false)
         };
         get(symbol_short!("all")) || get(scope)
+    }
+
+    /// Read-only: returns params and every pause-scope flag in one RPC call.
+    pub fn snapshot(env: Env) -> ConfigSnapshot {
+        let get_paused = |s: Symbol| -> bool {
+            env.storage()
+                .persistent()
+                .get(&Key::Paused(s))
+                .unwrap_or(false)
+        };
+        let paused_all = get_paused(symbol_short!("all"));
+        ConfigSnapshot {
+            params: env
+                .storage()
+                .instance()
+                .get(&Key::Params)
+                .unwrap_or_else(|| panic_with_error!(&env, Error::ParamsInvalid)),
+            paused_all,
+            paused_create: paused_all || get_paused(symbol_short!("create")),
+            paused_commit: paused_all || get_paused(symbol_short!("commit")),
+            paused_accept: paused_all || get_paused(symbol_short!("accept")),
+        }
     }
 
     pub fn upgrade(env: Env, wasm_hash: BytesN<32>) {
