@@ -327,3 +327,68 @@ fn nothing_is_dust_for_random_sized_commitments() {
     assert_eq!(c.bal(&c.gb.address), 0);
     let _ = Address::generate(&c.env);
 }
+
+#[test]
+fn shortfall_with_tier_change_and_dispute_worked_example() {
+    // Mirrors Worked Example 2 in docs/pricing-math.md
+    let c = setup();
+    let pool = c.pool(100); // 1.0% organizer fee
+    // 4 members commit standard 420 units
+    let t = c.fill_standard(pool);
+    // Total units: 420, final price: 0.80 USDC (tier 3: 400 @ 0.80)
+    let p = c.gb.pool(&pool);
+    assert_eq!(p.total_units, 420);
+    assert_eq!(p.final_price, 8_000_000); // 0.80 USDC
+    assert_eq!(p.total_paid, 400 * USDC);
+
+    // Supplier delivers only 350 units (70 units shortfall)
+    c.deliver(pool, 350);
+    c.gb.allocate_shortfall(&pool, &50);
+
+    // Verify shortfall allocation per member:
+    // A (60 units): floor(60 * 350 / 420) = 50 units
+    // B (60 units): floor(120 * 350 / 420) - 50 = 50 units
+    // C (100 units): floor(220 * 350 / 420) - 100 = 83 units
+    // D (200 units): 350 - 183 = 167 units
+    assert_eq!(c.gb.allocated_units_of(&pool, &t[0]), 50);
+    assert_eq!(c.gb.allocated_units_of(&pool, &t[1]), 50);
+    assert_eq!(c.gb.allocated_units_of(&pool, &t[2]), 83);
+    assert_eq!(c.gb.allocated_units_of(&pool, &t[3]), 167);
+
+    // Member A opens a dispute on 10 of their 50 received units
+    let dis_id = open(&c, pool, &t[0], 10);
+    assert_eq!(c.gb.pool(&pool).frozen_amount, 10 * 8_000_000); // 8.00 USDC frozen
+
+    // Advance past confirm window and settle
+    c.advance(48 * 3600);
+    c.gb.settle(&pool);
+
+    // Settle figures:
+    // Gross = 350 * 0.80 = 280 USDC (2_800_000_000 stroops)
+    // Payable = 280 - 8 = 272 USDC (2_720_000_000 stroops)
+    // Platform fee (1.5%) = floor(272 * 150 / 10000) = 4.08 USDC (40_800_000 stroops)
+    // Organizer fee (1.0%) = floor(272 * 100 / 10000) = 2.72 USDC (27_200_000 stroops)
+    // Supplier gets: 272 - 4.08 - 2.72 = 265.20 USDC (2_652_000_000 stroops)
+    assert_eq!(c.bal(&c.treasury), 40_800_000);
+    assert_eq!(c.bal(&c.organizer), 27_200_000);
+    assert_eq!(c.bal(&c.supplier) - 1_000 * USDC, 2_652_000_000);
+
+    // Arbiter resolves dispute: RefundMember(10)
+    c.dis.resolve(&c.arbiter, &dis_id, &Outcome::RefundMember(10), &h(&c.env, 4));
+
+    // Drain refunds
+    c.gb.push_refunds(&pool, &50);
+    c.gb.sweep_dust(&pool);
+
+    // Total refunds:
+    // A: (60 paid - 50*0.80) + 10*0.80 = 20 + 8 = 28 USDC
+    // B: 60 paid - 50*0.80 = 20 USDC
+    // C: 100 paid - 83*0.80 = 33.60 USDC
+    // D: 180 paid - 167*0.80 = 46.40 USDC
+    // Sum = 28 + 20 + 33.60 + 46.40 = 128 USDC
+    assert_eq!(c.bal(&t[0]) - 1_000 * USDC + 60 * USDC, 28 * USDC);
+    assert_eq!(c.bal(&t[1]) - 1_000 * USDC + 60 * USDC, 20 * USDC);
+    assert_eq!(c.bal(&t[2]) - 1_000 * USDC + 100 * USDC, 336_000_000);
+    assert_eq!(c.bal(&t[3]) - 1_000 * USDC + 180 * USDC, 464_000_000);
+    assert_eq!(c.bal(&c.gb.address), 0);
+}
