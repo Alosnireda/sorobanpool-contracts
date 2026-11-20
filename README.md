@@ -173,6 +173,29 @@ stellar keys generate sorobanpool-deployer --network testnet --fund
 NETWORK=testnet scripts/deploy.sh     # deploys, wires (init.sh), writes deployments/testnet.json
 ```
 
+### Local Network Quickstart
+
+To spin up a local standalone Stellar network via Docker, deploy all contracts, and run initial configuration:
+
+```bash
+# 1. Start the quickstart container, fund deployer, deploy, and initialise
+scripts/local.sh up
+
+# Output:
+# ==> Starting Stellar quickstart container...
+# ==> Waiting for standalone network RPC to become healthy...
+# Stellar standalone node is ready.
+# ==> Configuring stellar-cli local network and deployer identity...
+# ==> Funding deployer account: G...
+# ==> Deploying contracts and running initialization...
+# initialised local
+# wrote deployments/local.json
+# ==> Local environment ready! Deployed addresses written to deployments/local.json
+
+# 2. When finished, stop and tear down the container
+scripts/local.sh down
+```
+
 Mainnet deploys refuse to run without `MAINNET_CONFIRM=yes`, a clean tree, a release tag, an audit report hash and the admin multisig.
 
 ## Repository map

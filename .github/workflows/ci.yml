@@ -24,10 +24,6 @@ jobs:
       - run: stellar contract build
       - name: wasm size report
         run: ls -l target/wasm32v1-none/release/*.wasm
-      - name: bindings are fresh
-        run: |
-          scripts/bindings.sh
-          git diff --exit-code bindings/
       - name: export errors.json / events.json
         run: python3 scripts/export_artifacts.py
       - uses: actions/upload-artifact@v7
@@ -38,6 +34,31 @@ jobs:
             artifacts/events.json
             vectors/pricing-vectors.json
             target/wasm32v1-none/release/*.wasm
+
+  bindings:
+    name: Bindings freshness check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: 1.98.1
+          targets: wasm32v1-none
+      - uses: Swatinem/rust-cache@v2
+      - name: install stellar-cli
+        run: |
+          curl -fsSL https://github.com/stellar/stellar-cli/releases/download/v28.1.0/stellar-cli-28.1.0-x86_64-unknown-linux-gnu.tar.gz | sudo tar xz -C /usr/local/bin stellar
+          stellar --version
+      - name: build contracts wasm
+        run: stellar contract build
+      - name: check bindings freshness
+        run: |
+          scripts/bindings.sh
+          if ! git diff --exit-code bindings/; then
+            echo "::error::Bindings are out of date! Please run 'scripts/bindings.sh' and commit the changes in bindings/."
+            exit 1
+          fi
+
   coverage:
     runs-on: ubuntu-latest
     steps:
