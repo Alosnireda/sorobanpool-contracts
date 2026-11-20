@@ -21,5 +21,15 @@ Trust boundaries: contracts are the source of truth for escrow; the backend cann
 | Re-entrancy via token callbacks | State is updated before transfers; USDC is a Stellar Asset Contract | – |
 | Storage archival of live data | TTL bumping on touch plus backend job | A pool left untouched for long periods needs the keeper |
 | Dust theft | `sweep_dust` only moves escrow beyond `owed_total − refunds_paid`, blocked while anything is frozen | – |
+| Escrow funds reach an arbitrary address | Every token transfer originating from the group_buy escrow must go to one of: the pool's members, the supplier, the organizer, or the treasury. This is a hard invariant: no other address is a valid recipient, regardless of operation sequence. Property-tested over random sequences in `crates/scenarios/tests/suite/fuzz.rs` (`escrow_only_pays_allowed_destinations`, `escrow_outflows_cover_all_paths_and_stay_in_allowed_set`). The harness intercepts all SAC `transfer` events whose `from` equals the escrow address and asserts `to ∈ {members} ∪ {supplier, organizer, treasury}`. | – |
 
-Covered since: resource budget tests at a 200-member pool (`crates/scenarios/tests/suite/budget.rs`), ≥90% line coverage on `group_buy`/`disputes`/`supplier_bond` enforced in CI, randomised operation-sequence fuzzing (`crates/scenarios/tests/suite/fuzz.rs`). Not covered yet: external audit, formal verification, coverage-guided fuzzing (needs nightly Rust).
+**Allowed escrow outflow destinations** (formal list for the allowlist harness):
+
+| Recipient | Payment reason |
+|---|---|
+| Pool members | Refund on expiry, failure, tier-credit, or shortfall |
+| Supplier | Net payment at `settle` (units delivered × final price, minus fees) |
+| Organizer | Organizer fee at `settle` |
+| Treasury | Platform fee at `settle`; dust via `sweep_dust` |
+
+Covered since: resource budget tests at a 200-member pool (`crates/scenarios/tests/suite/budget.rs`), ≥90% line coverage on `group_buy`/`disputes`/`supplier_bond` enforced in CI, randomised operation-sequence fuzzing (`crates/scenarios/tests/suite/fuzz.rs`), escrow-destination allowlist property tests (`crates/scenarios/tests/suite/fuzz.rs` #156). Not covered yet: external audit, formal verification, coverage-guided fuzzing (needs nightly Rust).
