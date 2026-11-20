@@ -1258,6 +1258,16 @@ impl GroupBuy {
         }
     }
 
+    /// Returns `(remaining_members, remaining_amount)` for a pool in a final-refundable
+    /// state so keepers can decide how many `push_refunds` batches are still needed.
+    pub fn refunds_pending(env: Env, pool_id: u64) -> (u32, i128) {
+        let pool = load_pool(&env, pool_id);
+        if !is_final_refundable(&pool.state) {
+            return (0, 0);
+        }
+        let remaining_members = pool.listed_members.saturating_sub(pool.refund_cursor);
+        let remaining_amount = (pool.owed_total - pool.refunds_paid).max(0);
+        (remaining_members, remaining_amount)
     /// Read-only escrow invariant check for external monitoring (issue #143).
     ///
     /// Returns `(expected, actual)` where:

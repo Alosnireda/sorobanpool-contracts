@@ -310,6 +310,13 @@ export interface Client {
   refundable_of: ({pool_id, member}: {pool_id: u64, member: string}, options?: MethodOptions) => Promise<AssembledTransaction<i128>>
 
   /**
+   * Returns `[remaining_members, remaining_amount]` for a pool in a final-refundable
+   * state so keepers can decide how many `push_refunds` batches are still needed.
+   * Returns `[0, 0n]` when the pool is not yet in a refundable state.
+   */
+  refunds_pending: ({pool_id}: {pool_id: u64}, options?: MethodOptions) => Promise<AssembledTransaction<readonly [u32, i128]>>
+
+  /**
    * Construct and simulate a confirm_pickup transaction. Returns an `AssembledTransaction` object which will have a `result` field containing the result of the simulation. If this transaction changes contract state, you will need to call `signAndSend()` on the returned object.
    */
   confirm_pickup: ({member, pool_id}: {member: string, pool_id: u64}, options?: MethodOptions) => Promise<AssembledTransaction<null>>
@@ -440,6 +447,7 @@ export class Client extends ContractClient {
         apply_outcome: this.txFromJSON<null>,
         fail_delivery: this.txFromJSON<null>,
         refundable_of: this.txFromJSON<i128>,
+        refunds_pending: this.txFromJSON<readonly [u32, i128]>,
         confirm_pickup: this.txFromJSON<null>,
         payout_preview: this.txFromJSON<readonly [i128, i128, i128, i128]>,
         confirm_deadline: this.txFromJSON<u64>,
