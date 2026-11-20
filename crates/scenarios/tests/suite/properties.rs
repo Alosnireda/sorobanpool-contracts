@@ -3,8 +3,75 @@ use scenarios::*;
 use soroban_sdk::Address;
 use sp_common::types::PoolState;
 
+/// Assert `escrow_invariant` holds (actual >= expected) after every operation (#143).
+macro_rules! assert_invariant {
+    ($ctx:expr, $pool:expr) => {{
+        let (expected, actual) = $ctx.gb.escrow_invariant($pool);
+        prop_assert!(
+            actual >= expected,
+            "escrow invariant breached: actual={actual} expected={expected} state={:?}",
+            $ctx.gb.pool($pool).state
+        );
+    }};
+}
+
 proptest! {
     #![proptest_config(ProptestConfig::with_cases(24))]
+
+    /// `escrow_invariant` returns `actual >= expected` in every reachable state (#143).
+    #[test]
+    fn escrow_invariant_holds_in_all_states(
+        sizes in proptest::collection::vec(1u32..=120, 1..8),
+        received_pct in 0u32..=100,
+    ) {
+        let c = setup();
+        let pool = c.pool(100);
+        // after create
+        assert_invariant!(c, &pool);
+
+        let mut members: Vec<Address> = Vec::new();
+        for s in &sizes {
+            let m = c.trader();
+            if c.gb.try_commit(&m, &pool, s).is_ok() {
+                members.push(m);
+                // after each commit
+                assert_invariant!(c, &pool);
+            }
+        }
+
+        c.advance(3 * DAY);
+        c.gb.close(&pool);
+        // after close
+        assert_invariant!(c, &pool);
+
+        let p = c.gb.pool(&pool);
+        if p.state == PoolState::Expired {
+            c.gb.push_refunds(&pool, &50);
+            // after push_refunds on expired pool
+            assert_invariant!(c, &pool);
+            return Ok(());
+        }
+
+        let received = (p.total_units as u64 * received_pct as u64 / 100) as u32;
+        c.deliver(pool, received);
+        // after delivery
+        assert_invariant!(c, &pool);
+        c.gb.allocate_shortfall(&pool, &50);
+        // after shortfall allocation
+        assert_invariant!(c, &pool);
+        c.advance(48 * 3600);
+        c.gb.settle(&pool);
+        // after settle
+        assert_invariant!(c, &pool);
+        c.gb.push_refunds(&pool, &50);
+        // after push_refunds
+        assert_invariant!(c, &pool);
+        c.gb.sweep_dust(&pool);
+        // after sweep_dust (invariant: both sides are 0)
+        let (expected_final, actual_final) = c.gb.escrow_invariant(&pool);
+        prop_assert_eq!(expected_final, 0, "owed_total - refunds_paid must be 0 after full settlement");
+        prop_assert_eq!(actual_final, 0, "escrow_balance must be 0 after full settlement and sweep");
+    }
 
     /// Escrow covers the bill, every stroop is accounted for, nobody overpays, and no dust is left.
     #[test]

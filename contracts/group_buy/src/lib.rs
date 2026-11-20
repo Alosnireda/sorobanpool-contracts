@@ -1257,6 +1257,27 @@ impl GroupBuy {
             None => 0,
         }
     }
+
+    /// Read-only escrow invariant check for external monitoring (issue #143).
+    ///
+    /// Returns `(expected, actual)` where:
+    ///
+    /// - `expected` = `(owed_total − refunds_paid) + frozen_amount`
+    ///   — the minimum the contract must hold: outstanding refund obligations
+    ///   plus amounts frozen in open disputes.
+    /// - `actual`   = `escrow_balance`
+    ///   — tokens the contract currently holds for this pool.
+    ///
+    /// A healthy pool satisfies `actual >= expected`.  Any breach means tokens
+    /// have been released in excess of what the invariant allows.
+    ///
+    /// Does not mutate state and reads only the pool storage entry.
+    pub fn escrow_invariant(env: Env, pool_id: u64) -> (i128, i128) {
+        let pool = load_pool(&env, pool_id);
+        let outstanding = pool.owed_total.saturating_sub(pool.refunds_paid);
+        let expected = outstanding.saturating_add(pool.frozen_amount);
+        (expected, pool.escrow_balance)
+    }
 }
 
 #[cfg(test)]
