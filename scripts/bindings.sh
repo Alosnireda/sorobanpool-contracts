@@ -6,3 +6,4 @@ for c in config registry group_buy disputes supplier_bond reputation smart_walle
     --wasm "target/wasm32v1-none/release/$c.wasm" \
     --output-dir "bindings/$c" --overwrite
 done
+python3 scripts/export_artifacts.py
