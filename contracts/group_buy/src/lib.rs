@@ -1065,6 +1065,13 @@ impl GroupBuy {
     }
 
     /// Sends rounding dust (escrow beyond what is still owed) to the treasury.
+    ///
+    /// Requires the pool to be in a final-refundable state **and** have no
+    /// frozen funds (`frozen_amount == 0`).  A non-zero `frozen_amount` means
+    /// at least one dispute is still unresolved: the frozen slice is money that
+    /// may yet be owed to a member or supplier, so sweeping it would be a loss
+    /// (#139).  Call `resolve` (or `timeout`) on every open dispute before
+    /// sweeping.  Idempotent: returns 0 when no dust remains.
     pub fn sweep_dust(env: Env, pool_id: u64) -> i128 {
         let mut pool = load_pool(&env, pool_id);
         if !is_final_refundable(&pool.state) || pool.frozen_amount != 0 {
