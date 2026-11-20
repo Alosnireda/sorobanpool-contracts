@@ -70,6 +70,46 @@ fn push_refunds_pays_everyone_in_batches() {
     assert_eq!(c.gb.sweep_dust(&pool), 0);
 }
 
+// Issue #147: refunds_pending view tracks keeper progress across batches
+#[test]
+fn refunds_pending_decrements_with_each_push_batch() {
+    let c = setup();
+    let pool = c.pool(0);
+    let t = c.fill_standard(pool);
+    c.deliver(pool, 420);
+    c.advance(48 * 3600);
+    c.gb.settle(&pool);
+
+    // Before any batch: all 4 members are pending.
+    let (rem, amt) = c.gb.refunds_pending(&pool);
+    assert_eq!(rem, 4, "all members should be pending before first push");
+    assert!(amt > 0, "pending amount should be positive");
+
+    // Push 3: 1 member left.
+    c.gb.push_refunds(&pool, &3);
+    let (rem2, amt2) = c.gb.refunds_pending(&pool);
+    assert_eq!(rem2, 1);
+    assert!(amt2 < amt);
+
+    // Push the final batch: 0 members left, 0 amount.
+    c.gb.push_refunds(&pool, &3);
+    let (rem3, amt3) = c.gb.refunds_pending(&pool);
+    assert_eq!(rem3, 0);
+    assert_eq!(amt3, 0);
+}
+
+// refunds_pending returns (0, 0) when pool is not in a refundable state
+#[test]
+fn refunds_pending_is_zero_for_non_refundable_pool() {
+    let c = setup();
+    let pool = c.pool(0);
+    c.fill_standard(pool);
+    // Pool is Filled — not yet in a refundable state.
+    let (rem, amt) = c.gb.refunds_pending(&pool);
+    assert_eq!(rem, 0);
+    assert_eq!(amt, 0);
+}
+
 #[test]
 fn expired_pool_refunds_in_full() {
     let c = setup();
