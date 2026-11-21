@@ -19,6 +19,26 @@ fn setup() -> (Env, ReputationClient<'static>, Address) {
     (env.clone(), ReputationClient::new(&env, &id), gb)
 }
 
+/// Same wiring as `setup`, but without mocked authorisations so that
+/// `require_auth` failures surface.
+fn setup_unmocked() -> (Env, ReputationClient<'static>, Address) {
+    let env = Env::default();
+    env.ledger().set_timestamp(1_000);
+    let admin = Address::generate(&env);
+    let cfg_id = env.register(
+        Config,
+        (&admin, Address::generate(&env), Address::generate(&env)),
+    );
+    let cfg = ConfigClient::new(&env, &cfg_id);
+    let gb = Address::generate(&env);
+    env.mock_all_auths();
+    cfg.set_address(&keys::GROUP_BUY, &gb);
+    cfg.set_address(&keys::DISPUTES, &Address::generate(&env));
+    env.mock_auths(&[]);
+    let id = env.register(Reputation, (&cfg_id,));
+    (env.clone(), ReputationClient::new(&env, &id), gb)
+}
+
 fn rec(c: &ReputationClient, gb: &Address, who: &Address, role: Role, ev: Symbol, n: u32) {
     for _ in 0..n {
         c.record(gb, who, &role, &ev);
@@ -33,6 +53,23 @@ fn only_pool_contracts_may_record() {
     assert!(c
         .try_record(&stranger, &who, &Role::Supplier, &symbol_short!("settled"))
         .is_err());
+}
+
+#[test]
+fn registered_caller_without_auth_is_rejected() {
+    let (env, c, gb) = setup_unmocked();
+    let who = Address::generate(&env);
+    assert!(c
+        .try_record(&gb, &who, &Role::Supplier, &symbol_short!("settled"))
+        .is_err());
+}
+
+#[test]
+fn authorised_registered_caller_records() {
+    let (env, c, gb) = setup();
+    let who = Address::generate(&env);
+    c.record(&gb, &who, &Role::Supplier, &symbol_short!("settled"));
+    assert_eq!(c.stats(&who, &Role::Supplier).pools_settled, 1);
 }
 
 #[test]

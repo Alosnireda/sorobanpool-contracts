@@ -14,16 +14,29 @@ jobs:
           components: rustfmt, clippy
           targets: wasm32v1-none
       - uses: Swatinem/rust-cache@v2
-      - name: install stellar-cli (prebuilt release; building from source needs libdbus and takes minutes)
+      - name: Cache stellar-cli
+        id: cache-stellar
+        uses: actions/cache@v4
+        with:
+          path: /usr/local/bin/stellar
+          key: stellar-cli-28.1.0-linux-x86_64
+      - name: install stellar-cli
+        if: steps.cache-stellar.outputs.cache-hit != 'true'
         run: |
           curl -fsSL https://github.com/stellar/stellar-cli/releases/download/v28.1.0/stellar-cli-28.1.0-x86_64-unknown-linux-gnu.tar.gz | sudo tar xz -C /usr/local/bin stellar
           stellar --version
       - run: cargo fmt --all -- --check
       - run: cargo clippy --workspace --all-targets -- -D warnings
       - run: cargo test --workspace   # includes the pricing-vectors staleness check
-      - run: stellar contract build
-      - name: wasm size report
-        run: ls -l target/wasm32v1-none/release/*.wasm
+      - name: run examples walkthrough
+        run: cargo run -p examples
+      - run: scripts/build.sh
+      - name: wasm size report and budget check
+        run: python3 scripts/wasm_sizes.py
+      - name: validate deployments schema
+        run: python3 scripts/validate_deployments.py
+      - name: check markdown links
+        run: python3 scripts/check_markdown_links.py
       - name: export errors.json / events.json
         run: python3 scripts/export_artifacts.py
       - uses: actions/upload-artifact@v7
@@ -35,6 +48,12 @@ jobs:
             vectors/pricing-vectors.json
             target/wasm32v1-none/release/*.wasm
 
+  typos:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: crate-ci/typos@master
+
   bindings:
     name: Bindings freshness check
     runs-on: ubuntu-latest
@@ -45,12 +64,21 @@ jobs:
           toolchain: 1.98.1
           targets: wasm32v1-none
       - uses: Swatinem/rust-cache@v2
+      - name: Cache stellar-cli
+        id: cache-stellar-bindings
+        uses: actions/cache@v4
+        with:
+          path: /usr/local/bin/stellar
+          key: stellar-cli-28.1.0-linux-x86_64
       - name: install stellar-cli
+        if: steps.cache-stellar-bindings.outputs.cache-hit != 'true'
         run: |
           curl -fsSL https://github.com/stellar/stellar-cli/releases/download/v28.1.0/stellar-cli-28.1.0-x86_64-unknown-linux-gnu.tar.gz | sudo tar xz -C /usr/local/bin stellar
           stellar --version
       - name: build contracts wasm
         run: stellar contract build
+      - name: check bindings versions
+        run: python3 scripts/check_bindings_version.py
       - name: check bindings freshness
         run: |
           scripts/bindings.sh

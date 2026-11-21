@@ -19,7 +19,7 @@ use soroban_sdk::{
     crypto::Hash,
     panic_with_error, symbol_short, Bytes, BytesN, Env, Symbol, Vec,
 };
-use sp_common::events::emit;
+use sp_common::events::{self, emit};
 use stellar_accounts::verifiers::webauthn::{self, WebAuthnSigData};
 
 #[contracterror]
@@ -102,9 +102,9 @@ fn put_signer(env: &Env, credential_id: &Bytes, public_key: &BytesN<65>, activat
     emit(
         env,
         C,
-        symbol_short!("key_add"),
+        events::KEY_ADD,
         credential_id.clone(),
-        activation_ledger,
+        (),
     );
 }
 
@@ -162,7 +162,7 @@ impl SmartWallet {
             .persistent()
             .remove(&Key::Activation(credential_id.clone()));
         env.storage().instance().set(&Key::Count, &(n - 1));
-        emit(&env, C, symbol_short!("key_rm"), credential_id, ());
+        emit(&env, C, events::KEY_RM, credential_id, ());
     }
 
     pub fn public_key(env: Env, credential_id: Bytes) -> Option<BytesN<65>> {

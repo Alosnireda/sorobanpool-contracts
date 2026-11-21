@@ -1,5 +1,6 @@
 use super::*;
 use soroban_sdk::testutils::Address as _;
+use soroban_sdk::IntoVal;
 
 fn setup() -> (Env, ConfigClient<'static>, Address) {
     let env = Env::default();
@@ -76,7 +77,7 @@ fn registries() {
 
 #[test]
 fn snapshot_matches_individual_views() {
-    let (e, c, admin) = setup();
+    let (_e, c, admin) = setup();
     // un-paused baseline: snapshot params equal get_params, all flags false
     let snap = c.snapshot();
     let p = c.get_params();
@@ -126,4 +127,179 @@ fn snapshot_matches_individual_views() {
     // pause flags still match after params change
     assert_eq!(snap5.paused_commit, c.is_paused(&symbol_short!("commit")));
     assert_eq!(snap5.paused_create, c.is_paused(&symbol_short!("create")));
+}
+
+#[test]
+fn admin_two_step_handover_happy_path() {
+    let (e, c, admin) = setup();
+    let new_admin = Address::generate(&e);
+
+    assert_eq!(c.admin(), admin);
+    assert_eq!(c.proposed_admin(), None);
+
+    // Current admin proposes new admin
+    c.propose_admin(&new_admin);
+    assert_eq!(c.proposed_admin(), Some(new_admin.clone()));
+    assert_eq!(c.admin(), admin);
+
+    // Proposed admin accepts
+    c.accept_admin();
+    assert_eq!(c.admin(), new_admin);
+    assert_eq!(c.proposed_admin(), None);
+}
+
+#[test]
+fn admin_proposal_cancellation_and_overwrite() {
+    let (e, c, _admin) = setup();
+    let first = Address::generate(&e);
+    let second = Address::generate(&e);
+
+    c.propose_admin(&first);
+    assert_eq!(c.proposed_admin(), Some(first.clone()));
+
+    // Overwrite with second
+    c.propose_admin(&second);
+    assert_eq!(c.proposed_admin(), Some(second.clone()));
+
+    // Cancel proposal
+    c.cancel_admin_proposal();
+    assert_eq!(c.proposed_admin(), None);
+
+    // Accepting now fails with NoAdminProposal
+    assert!(c.try_accept_admin().is_err());
+}
+
+#[test]
+fn admin_proposal_unauthorized_acceptance() {
+    let e = Env::default();
+    let admin = Address::generate(&e);
+    let id = e.register(
+        Config,
+        (&admin, Address::generate(&e), Address::generate(&e)),
+    );
+    let c = ConfigClient::new(&e, &id);
+
+    let proposed = Address::generate(&e);
+    let stranger = Address::generate(&e);
+
+    // Mock admin auth for proposal
+    e.mock_auths(&[soroban_sdk::testutils::MockAuth {
+        address: &admin,
+        invoke: &soroban_sdk::testutils::MockAuthInvoke {
+            contract: &id,
+            fn_name: "propose_admin",
+            args: (&proposed,).into_val(&e),
+            sub_invokes: &[],
+        },
+    }]);
+    c.propose_admin(&proposed);
+
+    // Stranger tries to accept (mocking stranger auth, not proposed)
+    e.mock_auths(&[soroban_sdk::testutils::MockAuth {
+        address: &stranger,
+        invoke: &soroban_sdk::testutils::MockAuthInvoke {
+            contract: &id,
+            fn_name: "accept_admin",
+            args: ().into_val(&e),
+            sub_invokes: &[],
+        },
+    }]);
+    assert!(c.try_accept_admin().is_err());
+}
+
+#[test]
+fn attestor_and_arbiter_list_views_and_limits() {
+    let (e, c, _) = setup();
+    assert_eq!(c.attestors().len(), 0);
+    assert_eq!(c.arbiters().len(), 0);
+
+    let a1 = Address::generate(&e);
+    let a2 = Address::generate(&e);
+
+    // 1. Add attestor and arbiter
+    c.set_attestor(&a1, &true);
+    c.set_arbiter(&a1, &true);
+    assert_eq!(c.attestors().len(), 1);
+    assert_eq!(c.arbiters().len(), 1);
+    assert_eq!(c.attestors().get(0).unwrap(), a1);
+    assert_eq!(c.arbiters().get(0).unwrap(), a1);
+
+    // 2. Duplicate add does not duplicate entry
+    c.set_attestor(&a1, &true);
+    c.set_arbiter(&a1, &true);
+    assert_eq!(c.attestors().len(), 1);
+    assert_eq!(c.arbiters().len(), 1);
+
+    // 3. Add second entry
+    c.set_attestor(&a2, &true);
+    c.set_arbiter(&a2, &true);
+    assert_eq!(c.attestors().len(), 2);
+    assert_eq!(c.arbiters().len(), 2);
+
+    // 4. Disable removes entry
+    c.set_attestor(&a1, &false);
+    c.set_arbiter(&a1, &false);
+    assert!(!c.is_attestor(&a1));
+    assert!(!c.is_arbiter(&a1));
+    assert_eq!(c.attestors().len(), 1);
+    assert_eq!(c.arbiters().len(), 1);
+    assert_eq!(c.attestors().get(0).unwrap(), a2);
+    assert_eq!(c.arbiters().get(0).unwrap(), a2);
+
+    // 5. Size limits: MAX_ATTESTORS and MAX_ARBITERS
+    for _ in 1..MAX_ATTESTORS {
+        let addr = Address::generate(&e);
+        c.set_attestor(&addr, &true);
+    }
+    assert_eq!(c.attestors().len(), MAX_ATTESTORS);
+    let extra_attestor = Address::generate(&e);
+    assert!(c.try_set_attestor(&extra_attestor, &true).is_err());
+
+    for _ in 1..MAX_ARBITERS {
+        let addr = Address::generate(&e);
+        c.set_arbiter(&addr, &true);
+    }
+    assert_eq!(c.arbiters().len(), MAX_ARBITERS);
+    let extra_arbiter = Address::generate(&e);
+    assert!(c.try_set_arbiter(&extra_arbiter, &true).is_err());
+}
+
+#[test]
+fn category_allow_list_view_and_management() {
+    let (_e, c, _) = setup();
+    assert_eq!(c.categories().len(), 0);
+
+    let rice = symbol_short!("rice");
+    let wheat = symbol_short!("wheat");
+
+    // Add category
+    c.set_category(&rice, &true);
+    assert!(c.is_category_allowed(&rice));
+    assert_eq!(c.categories().len(), 1);
+    assert_eq!(c.categories().get(0).unwrap(), rice);
+
+    // Duplicate add does not duplicate in categories()
+    c.set_category(&rice, &true);
+    assert_eq!(c.categories().len(), 1);
+
+    // Add another category
+    c.set_category(&wheat, &true);
+    assert_eq!(c.categories().len(), 2);
+
+    // Disable category
+    c.set_category(&rice, &false);
+    assert!(!c.is_category_allowed(&rice));
+    assert_eq!(c.categories().len(), 1);
+    assert_eq!(c.categories().get(0).unwrap(), wheat);
+
+    // Re-enable category
+    c.set_category(&rice, &true);
+    assert!(c.is_category_allowed(&rice));
+    assert_eq!(c.categories().len(), 2);
+
+    // Disable again
+    c.set_category(&rice, &false);
+    assert_eq!(c.categories().len(), 1);
+    c.set_category(&wheat, &false);
+    assert_eq!(c.categories().len(), 0);
 }
