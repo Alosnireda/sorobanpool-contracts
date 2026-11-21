@@ -23,6 +23,11 @@ This document details the storage layout, key schemas, and TTL management polici
 
 ### 1. `config` Contract
 
+### Config Admin Lists Storage Growth
+Enumerable attestor and arbiter lists (`attestors()`, `arbiters()`) are stored in `config` instance storage as `Vec<Address>`. To ensure bounded instance storage footprint and predictable serialization cost, each list is strictly limited to 20 entries (`MAX_ATTESTORS = 20`, `MAX_ARBITERS = 20`). Exceeding either limit panics with named errors `TooManyAttestors` or `TooManyArbiters`. Disabling an attestor or arbiter automatically removes it from the respective enumerable list.
+
+
+
 Stores protocol-wide addresses, financial parameters, and role whitelists.
 
 | Storage Key Variant | Storage Type | Key Schema | Value Type | Written By | TTL Policy | Bounded / Paged |
