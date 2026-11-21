@@ -1,0 +1,20 @@
+[package]
+name = "examples"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+
+[[bin]]
+name = "pool_walkthrough"
+path = "src/main.rs"
+
+[dependencies]
+soroban-sdk = { workspace = true, features = ["testutils"] }
+sp_common = { workspace = true }
+config = { path = "../../contracts/config" }
+registry = { path = "../../contracts/registry" }
+reputation = { path = "../../contracts/reputation" }
+supplier_bond = { path = "../../contracts/supplier_bond" }
+group_buy = { path = "../../contracts/group_buy" }
+disputes = { path = "../../contracts/disputes" }
