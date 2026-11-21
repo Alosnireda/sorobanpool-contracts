@@ -117,3 +117,59 @@ fn organizer_and_trader_tiers() {
     assert_eq!(c.tier(&t, &Role::Trader), 2);
     assert_eq!(c.stats(&t, &Role::Trader).first_active_at, 1_000);
 }
+
+#[test]
+fn tier_threshold_boundaries_are_explicit() {
+    const SUPPLIER_S2_SETTLED: u32 = 15;
+    const ORGANIZER_S2_SETTLED: u32 = 15;
+    const TRADER_S2_SETTLED: u32 = 5;
+    const LOST_BP_LIMIT: u32 = 500;
+    const ON_TIME_BP_LIMIT: u32 = 9_000;
+
+    let supplier_cases = [
+        (SUPPLIER_S2_SETTLED - 1, 0, 100, 0, 1),
+        (SUPPLIER_S2_SETTLED, 0, 90, 10, 2),
+        (1_000, LOST_BP_LIMIT / 10 - 1, ON_TIME_BP_LIMIT / 10, 100, 2),
+        (1_000, LOST_BP_LIMIT / 10, ON_TIME_BP_LIMIT / 10, 100, 1),
+        (1_000, 0, ON_TIME_BP_LIMIT / 10 - 1, 101, 1),
+        (1_000, 0, ON_TIME_BP_LIMIT / 10, 100, 2),
+    ];
+    for (settled, lost, on_time, late, expected) in supplier_cases {
+        let stats = RepStats {
+            pools_settled: settled,
+            disputes_lost: lost,
+            on_time,
+            late,
+            ..Default::default()
+        };
+        assert_eq!(compute_tier(Role::Supplier, &stats, 0), expected);
+    }
+
+    let organizer_cases = [
+        (ORGANIZER_S2_SETTLED - 1, 0, 1),
+        (ORGANIZER_S2_SETTLED, 0, 2),
+        (1_000, LOST_BP_LIMIT / 10 - 1, 2),
+        (1_000, LOST_BP_LIMIT / 10, 1),
+    ];
+    for (settled, lost, expected) in organizer_cases {
+        let stats = RepStats {
+            pools_settled: settled,
+            disputes_lost: lost,
+            ..Default::default()
+        };
+        assert_eq!(compute_tier(Role::Organizer, &stats, 0), expected);
+    }
+
+    let trader_cases = [
+        (TRADER_S2_SETTLED - 1, 0),
+        (TRADER_S2_SETTLED, 2),
+        (TRADER_S2_SETTLED, 0),
+    ];
+    for (settled, expected) in trader_cases {
+        let stats = RepStats {
+            pools_settled: settled,
+            ..Default::default()
+        };
+        assert_eq!(compute_tier(Role::Trader, &stats, 0), expected);
+    }
+}
