@@ -61,7 +61,7 @@ fn typed<T, E: std::fmt::Debug, C: std::fmt::Debug>(
 }
 
 proptest! {
-    #![proptest_config(ProptestConfig::with_cases(40))]
+    #![proptest_config(ProptestConfig::with_cases(fuzz_cases(40)))]
 
     #[test]
     fn random_sequences_conserve_tokens_and_fail_cleanly(ops in proptest::collection::vec(op(), 1..25), received_pct in 0u32..=100) {
@@ -123,7 +123,7 @@ proptest! {
 // that run the pool to completion (Settled, Expired, or Failed).
 
 proptest! {
-    #![proptest_config(ProptestConfig::with_cases(30))]
+    #![proptest_config(ProptestConfig::with_cases(fuzz_cases(30)))]
 
     #[test]
     fn escrow_only_pays_allowed_destinations(
