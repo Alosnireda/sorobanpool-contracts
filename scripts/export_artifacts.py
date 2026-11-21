@@ -4,6 +4,7 @@ bindings/errors.ts (TypeScript error code constants and types), and bindings/eve
 (TypeScript event payload interfaces).
 Consumed by the frontend error map, SDK consumers, and backend indexer fixtures."""
 import glob, json, os, re, subprocess
+from error_ranges import validate_error_ranges
 
 root = os.path.join(os.path.dirname(__file__), "..")
 os.makedirs(os.path.join(root, "artifacts"), exist_ok=True)
@@ -32,7 +33,9 @@ contracts_version = get_contracts_version()
 
 errors = []
 for f in sorted(glob.glob(os.path.join(root, "contracts/*/src/lib.rs"))):
-    contract = f.split("/")[-3]
+    # Use platform-neutral path handling; contributors also run this check on
+    # Windows where the source path contains backslashes.
+    contract = os.path.basename(os.path.dirname(os.path.dirname(f)))
     m = re.search(r"pub enum Error \{(.*?)\n\}", open(f).read(), re.S)
     if not m:
         continue
@@ -41,6 +44,10 @@ for f in sorted(glob.glob(os.path.join(root, "contracts/*/src/lib.rs"))):
         if mm:
             errors.append({"code": int(mm.group(2)), "contract": contract, "name": mm.group(1)})
 errors.sort(key=lambda e: e["code"])
+try:
+    validate_error_ranges(errors)
+except ValueError as exc:
+    raise SystemExit(f"invalid contract error ranges: {exc}") from exc
 
 errors_payload = {
     "schemaVersion": 1,

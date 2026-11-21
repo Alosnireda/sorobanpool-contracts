@@ -7,7 +7,8 @@ use sp_common::clients::{BondClient, ConfigClient, RegistryClient, ReputationCli
 use sp_common::events::{self, emit};
 use sp_common::keys;
 use sp_common::math::{
-    bp_of, ceiling_price, cumulative_alloc, final_unit_price, tier_index, validate_tiers,
+    bp_of, ceiling_price, cumulative_alloc, final_unit_price, round_member_refund,
+    round_supplier_payable, tier_index, validate_tiers,
 };
 use sp_common::ttl::bump_persistent;
 use sp_common::types::{Commitment, Params, Pool, PoolState, PoolTerms, Role, Status};
@@ -256,7 +257,8 @@ fn refund_amount(env: &Env, pool: &Pool, c: &Commitment) -> i128 {
         PoolState::Expired | PoolState::Failed | PoolState::Cancelled => c.paid,
         PoolState::Settled => {
             let alloc = alloc_units(pool, c) as i128;
-            let base = c.paid - ck(env, alloc.checked_mul(pool.final_price));
+            let payable = ck(env, alloc.checked_mul(pool.final_price));
+            let base = ck(env, round_member_refund(c.paid, payable));
             let share = if pool.extra_refund_pool > 0 && pool.total_units > 0 {
                 ck(
                     env,
@@ -279,7 +281,14 @@ fn refund_amount(env: &Env, pool: &Pool, c: &Commitment) -> i128 {
 fn split_payable(env: &Env, pool: &Pool, amount: i128) -> (i128, i128, i128) {
     let org = ck(env, bp_of(amount, pool.organizer_fee_bp));
     let plat = ck(env, bp_of(amount, pool.platform_fee_bp));
-    (amount - org - plat, plat, org)
+    let net = ck(
+        env,
+        round_supplier_payable(
+            amount,
+            pool.organizer_fee_bp.saturating_add(pool.platform_fee_bp),
+        ),
+    );
+    (net, plat, org)
 }
 
 fn add_units(env: &Env, member: &Address, pool_id: u64, units: u32, is_increase: bool) -> i128 {
