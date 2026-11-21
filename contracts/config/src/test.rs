@@ -76,7 +76,7 @@ fn registries() {
 
 #[test]
 fn snapshot_matches_individual_views() {
-    let (e, c, admin) = setup();
+    let (_e, c, admin) = setup();
     // un-paused baseline: snapshot params equal get_params, all flags false
     let snap = c.snapshot();
     let p = c.get_params();
@@ -126,4 +126,61 @@ fn snapshot_matches_individual_views() {
     // pause flags still match after params change
     assert_eq!(snap5.paused_commit, c.is_paused(&symbol_short!("commit")));
     assert_eq!(snap5.paused_create, c.is_paused(&symbol_short!("create")));
+}
+
+#[test]
+fn attestor_and_arbiter_list_views_and_limits() {
+    let (e, c, _) = setup();
+    assert_eq!(c.attestors().len(), 0);
+    assert_eq!(c.arbiters().len(), 0);
+
+    let a1 = Address::generate(&e);
+    let a2 = Address::generate(&e);
+
+    // 1. Add attestor and arbiter
+    c.set_attestor(&a1, &true);
+    c.set_arbiter(&a1, &true);
+    assert_eq!(c.attestors().len(), 1);
+    assert_eq!(c.arbiters().len(), 1);
+    assert_eq!(c.attestors().get(0).unwrap(), a1);
+    assert_eq!(c.arbiters().get(0).unwrap(), a1);
+
+    // 2. Duplicate add does not duplicate entry
+    c.set_attestor(&a1, &true);
+    c.set_arbiter(&a1, &true);
+    assert_eq!(c.attestors().len(), 1);
+    assert_eq!(c.arbiters().len(), 1);
+
+    // 3. Add second entry
+    c.set_attestor(&a2, &true);
+    c.set_arbiter(&a2, &true);
+    assert_eq!(c.attestors().len(), 2);
+    assert_eq!(c.arbiters().len(), 2);
+
+    // 4. Disable removes entry
+    c.set_attestor(&a1, &false);
+    c.set_arbiter(&a1, &false);
+    assert!(!c.is_attestor(&a1));
+    assert!(!c.is_arbiter(&a1));
+    assert_eq!(c.attestors().len(), 1);
+    assert_eq!(c.arbiters().len(), 1);
+    assert_eq!(c.attestors().get(0).unwrap(), a2);
+    assert_eq!(c.arbiters().get(0).unwrap(), a2);
+
+    // 5. Size limits: MAX_ATTESTORS and MAX_ARBITERS
+    for _ in 1..MAX_ATTESTORS {
+        let addr = Address::generate(&e);
+        c.set_attestor(&addr, &true);
+    }
+    assert_eq!(c.attestors().len(), MAX_ATTESTORS);
+    let extra_attestor = Address::generate(&e);
+    assert!(c.try_set_attestor(&extra_attestor, &true).is_err());
+
+    for _ in 1..MAX_ARBITERS {
+        let addr = Address::generate(&e);
+        c.set_arbiter(&addr, &true);
+    }
+    assert_eq!(c.arbiters().len(), MAX_ARBITERS);
+    let extra_arbiter = Address::generate(&e);
+    assert!(c.try_set_arbiter(&extra_arbiter, &true).is_err());
 }
