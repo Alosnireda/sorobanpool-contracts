@@ -15,6 +15,9 @@ Refundable end states: `Expired`, `Failed`, `Cancelled` (full refund) and `Settl
 
 Supplier failures (`reject`, `fail_accept`, `fail_delivery`) record `failed` in `reputation`; a second failure within 90 days of the previous one suspends the supplier in `registry` (brief 5.9).
 
+Registry roles may be closed by an admin and re-registered with a fresh profile hash. The
+new registration resets registry verification only; reputation records remain separate.
+
 | Transition | Who | Preconditions |
 |---|---|---|
 | `create_pool` | organizer | Verified organizer and supplier, allowed category, valid tiers, deadline ≤ max fill window, pool value within organizer and supplier tier caps, fee ≤ max |
