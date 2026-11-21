@@ -21,3 +21,15 @@ A `justfile` is provided for common developer workflows. Run `just --list` to vi
 ## Adding a new contract function
 
 See **[docs/adding-a-function.md](docs/adding-a-function.md)** for the full step-by-step checklist: implementation → tests → WASM build → TypeScript bindings → artifact export → docs → downstream notifications.
+
+## Release Process
+
+Release artifacts and checksums are automatically compiled and published by `.github/workflows/release.yml`:
+
+1. Ensure all CI checks pass on `main` and the workspace version in `Cargo.toml` is up to date.
+2. Push a version tag matching `v*` (e.g. `v0.1.0`):
+   ```bash
+   git tag v0.1.0
+   git push origin v0.1.0
+   ```
+3. The release workflow builds all contract WASMs via `scripts/build.sh`, exports `errors.json` and `events.json`, generates a comprehensive `SHA256SUMS` manifest, and creates a tagged GitHub Release with automated changelog notes.
