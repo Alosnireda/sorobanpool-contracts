@@ -58,3 +58,100 @@ pub trait GroupBuyIface {
 
 #[allow(dead_code)]
 type _Hash = BytesN<32>;
+
+#[cfg(test)]
+mod test {
+    use super::*;
+    use soroban_sdk::{
+        contract, contracterror, contractimpl, panic_with_error, symbol_short,
+        testutils::Address as _, Env,
+    };
+
+    #[contracterror]
+    #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+    #[repr(u32)]
+    pub enum MockError {
+        NotAuthorizedCaller = 900,
+    }
+
+    /// Minimal stand-in for `config`: only `get_address` is needed by the guard.
+    #[contract]
+    pub struct MockConfig;
+
+    #[contractimpl]
+    impl MockConfig {
+        pub fn __constructor(env: Env, registered: Address) {
+            env.storage()
+                .instance()
+                .set(&symbol_short!("caller"), &registered);
+        }
+
+        pub fn get_address(env: Env, _key: Symbol) -> Address {
+            env.storage()
+                .instance()
+                .get(&symbol_short!("caller"))
+                .unwrap()
+        }
+    }
+
+    /// Mirrors the privileged-caller pattern used by the contracts: authorise
+    /// the caller, then check it against `config.get_address`.
+    #[contract]
+    pub struct Guarded;
+
+    #[contractimpl]
+    impl Guarded {
+        pub fn ping(env: Env, caller: Address, cfg: Address, key: Symbol) -> Address {
+            caller.require_auth();
+            let registered = ConfigClient::new(&env, &cfg).get_address(&key);
+            if caller != registered {
+                panic_with_error!(&env, MockError::NotAuthorizedCaller);
+            }
+            registered
+        }
+    }
+
+    fn setup(env: &Env) -> (Address, Address) {
+        let registered = Address::generate(env);
+        let cfg = env.register(MockConfig, (&registered,));
+        let guarded = env.register(Guarded, ());
+        (cfg, guarded)
+    }
+
+    #[test]
+    fn unregistered_caller_is_rejected() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let (cfg, guarded) = setup(&env);
+        let stranger = Address::generate(&env);
+        let guard = GuardedClient::new(&env, &guarded);
+        assert!(guard
+            .try_ping(&stranger, &cfg, &symbol_short!("group_buy"))
+            .is_err());
+    }
+
+    #[test]
+    fn registered_caller_without_auth_is_rejected() {
+        let env = Env::default();
+        env.mock_auths(&[]);
+        let (cfg, guarded) = setup(&env);
+        let registered = ConfigClient::new(&env, &cfg).get_address(&symbol_short!("group_buy"));
+        let guard = GuardedClient::new(&env, &guarded);
+        assert!(guard
+            .try_ping(&registered, &cfg, &symbol_short!("group_buy"))
+            .is_err());
+    }
+
+    #[test]
+    fn authorised_caller_succeeds() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let (cfg, guarded) = setup(&env);
+        let registered = ConfigClient::new(&env, &cfg).get_address(&symbol_short!("group_buy"));
+        let guard = GuardedClient::new(&env, &guarded);
+        assert_eq!(
+            guard.ping(&registered, &cfg, &symbol_short!("group_buy")),
+            registered
+        );
+    }
+}
