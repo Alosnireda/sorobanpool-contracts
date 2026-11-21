@@ -31,6 +31,7 @@ pub enum Error {
     NotProposedAdmin = 107,
     TooManyArbiters = 108,
     TooManyAttestors = 109,
+    TooManyCategories = 110,
 }
 
 #[contracttype]
@@ -46,6 +47,7 @@ enum Key {
     Arbiter(Address),
     ArbiterList,
     Category(Symbol),
+    Categories,
     Paused(Symbol),
     ProposedAdmin,
 }
@@ -53,6 +55,7 @@ enum Key {
 /// Bounded maximum sizes for enumerable admin lists in instance storage.
 pub const MAX_ARBITERS: u32 = 20;
 pub const MAX_ATTESTORS: u32 = 20;
+pub const MAX_CATEGORIES: u32 = 50;
 
 const C: Symbol = symbol_short!("config");
 
@@ -294,13 +297,48 @@ impl Config {
         require_admin(&env);
         env.storage()
             .persistent()
-            .set(&Key::Category(cat), &allowed);
+            .set(&Key::Category(cat.clone()), &allowed);
+
+        let mut list: Vec<Symbol> = env
+            .storage()
+            .instance()
+            .get(&Key::Categories)
+            .unwrap_or_else(|| Vec::new(&env));
+
+        let mut found_idx: Option<u32> = None;
+        for i in 0..list.len() {
+            if list.get(i).unwrap() == cat {
+                found_idx = Some(i);
+                break;
+            }
+        }
+
+        if allowed {
+            if found_idx.is_none() {
+                if list.len() >= MAX_CATEGORIES {
+                    panic_with_error!(&env, Error::TooManyCategories);
+                }
+                list.push_back(cat);
+                env.storage().instance().set(&Key::Categories, &list);
+            }
+        } else if let Some(idx) = found_idx {
+            list.remove(idx);
+            env.storage().instance().set(&Key::Categories, &list);
+        }
     }
+
     pub fn is_category_allowed(env: Env, cat: Symbol) -> bool {
         env.storage()
             .persistent()
             .get(&Key::Category(cat))
             .unwrap_or(false)
+    }
+
+    pub fn categories(env: Env) -> Vec<Symbol> {
+        env.storage()
+            .instance()
+            .get(&Key::Categories)
+            .unwrap_or_else(|| Vec::new(&env))
     }
 
     pub fn set_guardian(env: Env, g: Address) {

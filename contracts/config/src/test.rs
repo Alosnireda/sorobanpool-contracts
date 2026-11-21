@@ -263,3 +263,43 @@ fn attestor_and_arbiter_list_views_and_limits() {
     let extra_arbiter = Address::generate(&e);
     assert!(c.try_set_arbiter(&extra_arbiter, &true).is_err());
 }
+
+#[test]
+fn category_allow_list_view_and_management() {
+    let (_e, c, _) = setup();
+    assert_eq!(c.categories().len(), 0);
+
+    let rice = symbol_short!("rice");
+    let wheat = symbol_short!("wheat");
+
+    // Add category
+    c.set_category(&rice, &true);
+    assert!(c.is_category_allowed(&rice));
+    assert_eq!(c.categories().len(), 1);
+    assert_eq!(c.categories().get(0).unwrap(), rice);
+
+    // Duplicate add does not duplicate in categories()
+    c.set_category(&rice, &true);
+    assert_eq!(c.categories().len(), 1);
+
+    // Add another category
+    c.set_category(&wheat, &true);
+    assert_eq!(c.categories().len(), 2);
+
+    // Disable category
+    c.set_category(&rice, &false);
+    assert!(!c.is_category_allowed(&rice));
+    assert_eq!(c.categories().len(), 1);
+    assert_eq!(c.categories().get(0).unwrap(), wheat);
+
+    // Re-enable category
+    c.set_category(&rice, &true);
+    assert!(c.is_category_allowed(&rice));
+    assert_eq!(c.categories().len(), 2);
+
+    // Disable again
+    c.set_category(&rice, &false);
+    assert_eq!(c.categories().len(), 1);
+    c.set_category(&wheat, &false);
+    assert_eq!(c.categories().len(), 0);
+}
