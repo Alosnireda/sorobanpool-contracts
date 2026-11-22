@@ -82,3 +82,5 @@ Further reading: `state-machine.md`, `pricing-math.md`, `events.md`, `errors.md`
 The config contract exposes `get_hard_caps` as a read-only view of every immutable
 limit enforced by `set_params`, including basis-point and tier-vector limits.
 Clients should use this view when validating settings instead of copying constants.
+
+The registry `statuses` view accepts at most 64 users per call and preserves input order.

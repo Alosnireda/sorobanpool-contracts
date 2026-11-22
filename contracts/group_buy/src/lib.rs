@@ -226,6 +226,10 @@ fn delivery_deadline(params: &Params, pool: &Pool) -> u64 {
     pool.accepted_at + pool.terms.lead_time_secs + params.delivery_grace_secs
 }
 
+fn on_time_deadline(pool: &Pool) -> u64 {
+    pool.accepted_at + pool.terms.lead_time_secs
+}
+
 fn confirm_deadline_of(params: &Params, pool: &Pool) -> u64 {
     let base = if pool.dispatched_at > 0 {
         pool.dispatched_at
@@ -775,7 +779,6 @@ impl GroupBuy {
         evidence: BytesN<32>,
     ) {
         organizer.require_auth();
-        let params = cfg(&env).get_params();
         let mut pool = load_pool(&env, pool_id);
         if organizer != pool.organizer {
             fail::<()>(&env, Error::NotOrganizer);
@@ -786,7 +789,7 @@ impl GroupBuy {
         if received_units > pool.total_units {
             fail::<()>(&env, Error::BadReceivedUnits);
         }
-        let on_time = now(&env) <= delivery_deadline(&params, &pool);
+        let on_time = now(&env) <= on_time_deadline(&pool);
         pool.state = PoolState::Delivered;
         pool.delivered_at = now(&env);
         pool.received_units = received_units;
@@ -852,7 +855,7 @@ impl GroupBuy {
         if (pool.confirm_units as u64) * 10_000
             >= (COLLECTIVE_CONFIRM_BP as u64) * (pool.total_units as u64)
         {
-            let on_time = now(&env) <= delivery_deadline(&params, &pool);
+            let on_time = now(&env) <= on_time_deadline(&pool);
             pool.state = PoolState::Delivered;
             pool.delivered_at = now(&env);
             pool.received_units = pool.total_units;
