@@ -2,7 +2,16 @@ version: 2
 updates:
   - package-ecosystem: cargo
     directory: /
-    schedule: { interval: weekly }
+    schedule:
+      interval: weekly
+    groups:
+      # Pinned together (ADR 0006: docs/decisions/0006-passkey-smart-wallet.md).
+      # stellar-accounts 0.8.0 requires soroban-sdk ^28; updating one without the other breaks builds.
+      soroban-sdk-and-stellar-accounts:
+        patterns:
+          - "soroban-sdk*"
+          - "stellar-accounts*"
   - package-ecosystem: github-actions
     directory: /
-    schedule: { interval: weekly }
+    schedule:
+      interval: weekly

@@ -159,11 +159,15 @@ CI gates: `cargo fmt`, `clippy -D warnings`, 77 tests, wasm build, TypeScript bi
 Needs Rust (pinned by `rust-toolchain.toml`, target `wasm32v1-none`) and the [Stellar CLI](https://developers.stellar.org/docs/tools/cli) 28.
 
 ```bash
+# Using cargo directly:
 cargo fmt --all && cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace            # 77 tests: unit, scenario, property, fuzz, budget
 stellar contract build            # wasm in target/wasm32v1-none/release
 scripts/bindings.sh               # TypeScript bindings into bindings/
 python3 scripts/export_artifacts.py   # errors.json / events.json, cross-checked against docs
+
+# Or using the justfile:
+just check                        # lint, test, bindings, artifacts
 ```
 
 Deploy your own copy to testnet:
@@ -198,11 +202,43 @@ scripts/local.sh down
 
 Mainnet deploys refuse to run without `MAINNET_CONFIRM=yes`, a clean tree, a release tag, an audit report hash and the admin multisig.
 
+## Client Walkthrough (Examples)
+
+New contributors can inspect a complete, commented end-to-end flow (creating a pool, committing escrow, locking price tiers, dispatch, confirmation, and settlement) in `crates/examples`:
+
+```bash
+cargo run -p examples
+```
+
+## TypeScript Bindings & Versioning
+
+The `bindings/` directory contains generated TypeScript packages for each contract (`config`, `registry`, `group_buy`, `disputes`, `supplier_bond`, `reputation`, `smart_wallet`).
+
+- **Consistent Versioning:** All bindings packages share the workspace version defined in `Cargo.toml` (`0.1.0`), verified in CI via `scripts/check_bindings_version.py`.
+- **Pinning Versions for Consumers:** Downstream consumers (backend indexer, frontend dApp) should pin exact versions in their `package.json`:
+
+```json
+{
+  "dependencies": {
+    "group_buy": "0.1.0"
+  }
+}
+```
+Or when consuming locally or via path:
+```json
+{
+  "dependencies": {
+    "group_buy": "file:../sorobanpool-contracts/bindings/group_buy"
+  }
+}
+```
+
 ## Repository map
 
 ```text
 contracts/      config · registry · reputation · supplier_bond · group_buy · disputes · smart_wallet
 crates/
+  examples/     commented walkthrough narrating full pool lifecycle (cargo run -p examples)
   sp_common/    shared types, errors, tier & pro-rata maths, cross-contract client traits, TTL helpers
   scenarios/    every contract wired together with a real token: scenario, property, fuzz, budget tests
 bindings/       generated TypeScript clients (CI fails when stale)
