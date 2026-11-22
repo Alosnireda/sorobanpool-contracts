@@ -6,7 +6,7 @@ use soroban_sdk::{
 use sp_common::clients::{ConfigClient, GroupBuyClient, ReputationClient};
 use sp_common::events::{self, emit};
 use sp_common::keys;
-use sp_common::math::{bp_of, mul_div_floor};
+use sp_common::math::{bp_of, mul_div_floor, round_supplier_payable};
 use sp_common::ttl::bump_persistent;
 use sp_common::types::{Dispute, DisputeReason, Outcome, Role};
 
@@ -331,8 +331,8 @@ impl Disputes {
                 if bp > 10_000 {
                     fail::<()>(&env, Error::BadOutcome);
                 }
-                let m = ck(&env, mul_div_floor(a, bp as i128, 10_000));
-                (m, a - m, true)
+                let to_supplier = ck(&env, round_supplier_payable(a, bp));
+                (a - to_supplier, to_supplier, true)
             }
             Outcome::RefundPool => (a, 0, side != Side::Supplier),
         };

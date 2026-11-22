@@ -39,6 +39,29 @@ pub fn bp_of(amount: i128, bp: u32) -> Option<i128> {
     mul_div_floor(amount, bp as i128, BPS_DENOMINATOR as i128)
 }
 
+/// Return the supplier's share after fees, rounded down in favour of escrow.
+///
+/// The discarded fractional unit remains in escrow as dust and can be swept
+/// only after all member obligations have been satisfied.
+pub fn round_supplier_payable(amount: i128, fee_bp: u32) -> Option<i128> {
+    if fee_bp > BPS_DENOMINATOR {
+        return None;
+    }
+    mul_div_floor(
+        amount,
+        (BPS_DENOMINATOR - fee_bp) as i128,
+        BPS_DENOMINATOR as i128,
+    )
+}
+
+/// Return the member refund after a rounded-down payable amount.
+///
+/// Because the payable side is rounded down, this subtraction rounds the
+/// refund up to preserve the member's full entitlement.
+pub fn round_member_refund(paid: i128, payable: i128) -> Option<i128> {
+    paid.checked_sub(payable)
+}
+
 /// Deterministic shortfall allocation. Members are walked in commit order with
 /// a running cumulative unit count; each gets
 /// `floor(cum_after * received / total) - floor(cum_before * received / total)`,
@@ -205,6 +228,13 @@ mod test {
     }
 
     #[test]
+    fn named_rounding_policy_is_explicit() {
+        assert_eq!(round_supplier_payable(101, 333), Some(97));
+        assert_eq!(round_member_refund(101, 97), Some(4));
+        assert_eq!(round_supplier_payable(1, BPS_DENOMINATOR + 1), None);
+    }
+
+    #[test]
     fn overflow_tests_at_extremes() {
         // mul_div_floor near i128::MAX and extreme boundaries
         assert_eq!(mul_div_floor(i128::MAX, 2, 1), None);
@@ -248,7 +278,5 @@ mod test {
         );
         assert_eq!(tier_index(&extreme_tiers, u32::MAX), Some(1));
         assert!(validate_tiers(&extreme_tiers, 1, u32::MAX));
-
-
     }
 }

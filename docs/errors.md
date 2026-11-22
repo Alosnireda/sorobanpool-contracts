@@ -1,6 +1,19 @@
 # Error codes
 
-Generated from the `Error` enums in each contract (namespaced: config 100s, registry 200s, group_buy 300s, disputes 400s, supplier_bond 500s, reputation 600s). The frontend maps every code to plain-language EN and Pidgin text.
+Generated from the `Error` enums in each contract. Codes must stay within the
+contract namespace below; `scripts/export_artifacts.py` fails on duplicates or
+out-of-range values, and `scripts/test_error_ranges.py` tests both failure
+modes.
+
+| Contract | Reserved range |
+|---|---:|
+| config | 100–199 |
+| registry | 200–299 |
+| group_buy | 300–399 |
+| disputes | 400–499 |
+| supplier_bond | 500–599 |
+| reputation | 600–699 |
+| smart_wallet | 700–799 |
 
 | Code | Contract | Name |
 |---|---|---|
