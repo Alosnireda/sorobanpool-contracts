@@ -131,3 +131,14 @@ fn statuses_preserve_order_and_are_bounded() {
     let too_many = (0..65).map(|_| Address::generate(&c.env)).collect::<Vec<_>>();
     assert!(c.reg.try_statuses(&too_many, &Role::Trader).is_err());
 }
+
+#[test]
+fn closed_roles_can_reregister_without_touching_reputation_storage() {
+    let c = setup();
+    let user = Address::generate(&c.env);
+    c.reg.register(&user, &Role::Trader, &h(&c.env, 1), &None);
+    c.reg.close(&c.admin, &user, &Role::Trader, &symbol_short!("retired"));
+    c.reg.register(&user, &Role::Trader, &h(&c.env, 9), &None);
+    assert_eq!(c.reg.status(&user, &Role::Trader), Status::Registered);
+    assert_eq!(c.reg.level(&user, &Role::Trader), 0);
+}

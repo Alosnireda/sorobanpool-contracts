@@ -51,6 +51,7 @@ export type Status = {tag: "Unregistered", values: void} | {tag: "Registered", v
 export interface Client {
   /** Returns statuses in input order; maximum batch size is 64. */
   statuses: ({users, role}: {users: Array<string>, role: Role}, options?: MethodOptions) => Promise<AssembledTransaction<Array<Status>>>
+  close: ({admin, user, role, reason}: {admin: string, user: string, role: Role, reason: string}, options?: MethodOptions) => Promise<AssembledTransaction<null>>
   /**
    * Construct and simulate a level transaction. Returns an `AssembledTransaction` object which will have a `result` field containing the result of the simulation. If this transaction changes contract state, you will need to call `signAndSend()` on the returned object.
    */
@@ -130,6 +131,7 @@ export class Client extends ContractClient {
   }
   public readonly fromJSON = {
     statuses: this.txFromJSON<Array<Status>>,
+    close: this.txFromJSON<null>,
     level: this.txFromJSON<u32>,
         attest: this.txFromJSON<null>,
         revoke: this.txFromJSON<null>,

@@ -171,6 +171,7 @@ pub struct Params {
     pub dispute_deposit_min: i128,
     pub arbitration_sla_secs: u64,
     pub withdraw_lock_secs: u64,
+    pub bond_withdraw_cooldown_secs: u64,
     pub max_member_share_bp: u32,
     pub max_members_per_pool: u32,
     pub advance_enabled: bool,
@@ -211,6 +212,7 @@ pub mod caps {
     pub const ORGANIZER_TIER_COUNT: u32 = 3;
     pub const TRADER_TIER_COUNT: u32 = 3;
     pub const SUPPLIER_ADVANCE_TIER_COUNT: u32 = 4;
+    pub const BOND_WITHDRAW_COOLDOWN_SECS: u64 = 30 * 24 * 3600;
 }
 
 /// Maximum verification level accepted for each registry role.

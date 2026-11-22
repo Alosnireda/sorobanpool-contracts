@@ -17,7 +17,7 @@ pub enum Error {
     NotGroupBuy = 502,
     NotInitialised = 503,
     ReleaseExceedsReserved = 504,
-    Overflow = 505,
+    WithdrawCooldown = 505,
 }
 
 #[contracttype]
@@ -25,6 +25,7 @@ pub enum Error {
 enum Key {
     Config,
     Bond(Address),
+    LastSlashed(Address),
 }
 
 #[contracttype]
@@ -78,6 +79,17 @@ impl SupplierBond {
         supplier.require_auth();
         if amount <= 0 {
             panic_with_error!(&env, Error::InvalidAmount);
+        }
+        let cooldown = cfg(&env).get_params().bond_withdraw_cooldown_secs;
+        let last_slashed_at: u64 = env
+            .storage()
+            .persistent()
+            .get(&Key::LastSlashed(supplier.clone()))
+            .unwrap_or(0);
+        if last_slashed_at > 0
+            && env.ledger().timestamp() < last_slashed_at.saturating_add(cooldown)
+        {
+            panic_with_error!(&env, Error::WithdrawCooldown);
         }
         let mut b = load(&env, &supplier);
         b.total = b
@@ -145,6 +157,12 @@ impl SupplierBond {
         } else {
             0
         };
+        if slashed > 0 {
+            env.storage().persistent().set(
+                &Key::LastSlashed(supplier.clone()),
+                &env.ledger().timestamp(),
+            );
+        }
         save(&env, &supplier, &b);
         if slashed > 0 {
             token::Client::new(&env, &cfg(&env).usdc()).transfer(
@@ -153,7 +171,7 @@ impl SupplierBond {
                 &slashed,
             );
         }
-        emit(&env, C, events::SLASHED, supplier, slashed);
+        emit(&env, C, symbol_short!("slashed"), supplier, (amount, slashed));
         slashed
     }
 

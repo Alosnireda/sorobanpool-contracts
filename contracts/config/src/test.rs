@@ -38,6 +38,9 @@ fn hard_caps_are_enforced() {
     p.platform_fee_bp = 500;
     c.set_params(&p);
     assert_eq!(c.get_params().platform_fee_bp, 500);
+    let mut p = c.get_params();
+    p.bond_withdraw_cooldown_secs = 30 * 24 * 3600 + 1;
+    assert!(c.try_set_params(&p).is_err());
 }
 
 #[test]
@@ -57,7 +60,7 @@ fn hard_caps_view_matches_validation_limits() {
 
 #[test]
 fn pause_scopes_and_guardian() {
-    let (e, c, admin) = setup();
+    let (_e, c, admin) = setup();
     let guardian = Address::generate(&e);
     c.set_guardian(&guardian);
     let commit = symbol_short!("commit");
