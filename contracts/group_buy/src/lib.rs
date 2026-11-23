@@ -315,7 +315,11 @@ fn add_units(env: &Env, member: &Address, pool_id: u64, units: u32, is_increase:
     }
     let reg = registry(env);
     let st = reg.status(member, &Role::Trader);
-    if st != Status::Registered && st != Status::Verified {
+    let is_organizer = *member == pool.organizer;
+    let allowed = st == Status::Registered
+        || st == Status::Verified
+        || (is_organizer && reg.status(member, &Role::Organizer) == Status::Verified);
+    if !allowed {
         fail::<()>(env, Error::NotAllowedMember);
     }
     if let Some(cluster) = pool.cluster.clone() {
@@ -372,8 +376,16 @@ fn add_units(env: &Env, member: &Address, pool_id: u64, units: u32, is_increase:
     let price = ck(env, ceiling_price(&pool.terms.tiers, pool.total_units));
     let amount = ck(env, (units as i128).checked_mul(price));
     let new_paid = ck(env, c.paid.checked_add(amount));
-    let lvl = reg.level(member, &Role::Trader);
-    let rep_tier = reputation(env).tier(member, &Role::Trader);
+    let lvl = if is_organizer && st == Status::Unregistered {
+        reg.level(member, &Role::Organizer)
+    } else {
+        reg.level(member, &Role::Trader)
+    };
+    let rep_tier = if is_organizer && st == Status::Unregistered {
+        reputation(env).tier(member, &Role::Organizer)
+    } else {
+        reputation(env).tier(member, &Role::Trader)
+    };
     let trader_tier = if lvl == 0 {
         0
     } else if rep_tier >= 2 {

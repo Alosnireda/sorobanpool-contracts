@@ -1,7 +1,7 @@
 use scenarios::*;
 use soroban_sdk::testutils::{Address as _, Events as _};
 use soroban_sdk::{symbol_short, Address};
-use sp_common::types::{caps, PoolState, Role};
+use sp_common::types::{caps, PoolState, Role, Tier};
 
 #[test]
 fn shortfall_is_allocated_pro_rata_and_supplier_paid_for_received_only() {
@@ -526,3 +526,85 @@ fn commit_fails_when_member_is_pool_supplier() {
         )))
     );
 }
+
+#[test]
+fn organizer_member_share_cap_and_sole_member_exemption() {
+    let c = setup();
+    let mut terms = c.terms();
+    terms.max_units = 100;
+    terms.max_per_member = 100;
+    terms.moq = 10;
+    terms.tiers = soroban_sdk::vec![
+        &c.env,
+        Tier {
+            min_units: 10,
+            unit_price: USDC,
+        },
+    ];
+    let dl = c.now() + 2 * DAY;
+    let pool = c
+        .gb
+        .create_pool(&c.organizer, &terms, &h(&c.env, 7), &0, &None, &dl);
+
+    c.mint.mint(&c.organizer, &(1_000 * USDC));
+
+    // 1. Sole-member exemption: organizer can commit >50% (60 units of 100) as the only member
+    c.gb.commit(&c.organizer, &pool, &60);
+    assert_eq!(c.gb.commitment(&pool, &c.organizer).unwrap().units, 60);
+
+    // 2. When other members exist:
+    let pool2 = c
+        .gb
+        .create_pool(&c.organizer, &terms, &h(&c.env, 8), &0, &None, &dl);
+    let trader = c.trader();
+    c.gb.commit(&trader, &pool2, &10);
+
+    // Organizer committing 51 units (one unit over the 50% cap of 100) is rejected
+    let err_over = c.gb.try_commit(&c.organizer, &pool2, &51).err();
+    assert_eq!(
+        err_over,
+        Some(Ok(soroban_sdk::Error::from_contract_error(
+            group_buy::Error::OverMemberShare as u32
+        )))
+    );
+
+    // Organizer committing 50 units (at the 50% cap) succeeds
+    assert!(c.gb.try_commit(&c.organizer, &pool2, &50).is_ok());
+    assert_eq!(c.gb.commitment(&pool2, &c.organizer).unwrap().units, 50);
+
+    // Organizer increasing by 1 unit (from 50 to 51) while other members exist is rejected
+    let err_inc = c.gb.try_increase(&c.organizer, &pool2, &1).err();
+    assert_eq!(
+        err_inc,
+        Some(Ok(soroban_sdk::Error::from_contract_error(
+            group_buy::Error::OverMemberShare as u32
+        )))
+    );
+
+    // 3. Ordinary member behaviour is unchanged: sole-member exemption and 50% cap
+    let pool3 = c
+        .gb
+        .create_pool(&c.organizer, &terms, &h(&c.env, 9), &0, &None, &dl);
+    let trader1 = c.trader();
+    // Sole member trader can commit 60 units (>50% of 100)
+    c.gb.commit(&trader1, &pool3, &60);
+    assert_eq!(c.gb.commitment(&pool3, &trader1).unwrap().units, 60);
+
+    let pool4 = c
+        .gb
+        .create_pool(&c.organizer, &terms, &h(&c.env, 10), &0, &None, &dl);
+    let trader2 = c.trader();
+    let trader3 = c.trader();
+    c.gb.commit(&trader2, &pool4, &10);
+    // trader3 committing 51 units fails
+    let err_trader_over = c.gb.try_commit(&trader3, &pool4, &51).err();
+    assert_eq!(
+        err_trader_over,
+        Some(Ok(soroban_sdk::Error::from_contract_error(
+            group_buy::Error::OverMemberShare as u32
+        )))
+    );
+    // trader3 committing 50 units succeeds
+    assert!(c.gb.try_commit(&trader3, &pool4, &50).is_ok());
+}
+
