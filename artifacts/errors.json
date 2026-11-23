@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "contractsVersion": "8e0f295",
+  "contractsVersion": "a8cfea4",
   "errors": [
     {
       "code": 100,
@@ -331,6 +331,11 @@
       "code": 346,
       "contract": "group_buy",
       "name": "DeadlineTooFar"
+    },
+    {
+      "code": 347,
+      "contract": "group_buy",
+      "name": "OrganizerIsSupplier"
     },
     {
       "code": 400,

@@ -249,10 +249,12 @@ fn create_pool_validation() {
         .try_create_pool(&rogue, &c.terms(), &h(&c.env, 7), &0, &None, &dl)
         .is_err());
     // supplier cannot organize their own pool
-    assert!(c
-        .gb
-        .try_create_pool(&c.supplier, &c.terms(), &h(&c.env, 7), &0, &None, &dl)
-        .is_err());
+    assert_eq!(
+        c.gb.try_create_pool(&c.supplier, &c.terms(), &h(&c.env, 7), &0, &None, &dl).err(),
+        Some(Ok(soroban_sdk::Error::from_contract_error(
+            group_buy::Error::OrganizerIsSupplier as u32
+        )))
+    );
 }
 
 #[test]
@@ -477,4 +479,50 @@ fn max_fill_window_can_be_raised_to_14_day_hard_cap() {
     // One second beyond the hard cap must still fail (DeadlineTooFar).
     let err = try_dl(&c, at_hard_cap + 1);
     assert_eq!(err, Some(group_buy::Error::DeadlineTooFar as u32));
+}
+
+#[test]
+fn create_pool_fails_when_organizer_is_supplier() {
+    let c = setup();
+    let dl = c.now() + DAY;
+    // Organizer address matches supplier in terms
+    let err = c
+        .gb
+        .try_create_pool(&c.supplier, &c.terms(), &h(&c.env, 7), &0, &None, &dl)
+        .err();
+    assert_eq!(
+        err,
+        Some(Ok(soroban_sdk::Error::from_contract_error(
+            group_buy::Error::OrganizerIsSupplier as u32
+        )))
+    );
+
+    // Terms supplier set to organizer
+    let mut terms = c.terms();
+    terms.supplier = c.organizer.clone();
+    let err2 = c
+        .gb
+        .try_create_pool(&c.organizer, &terms, &h(&c.env, 7), &0, &None, &dl)
+        .err();
+    assert_eq!(
+        err2,
+        Some(Ok(soroban_sdk::Error::from_contract_error(
+            group_buy::Error::OrganizerIsSupplier as u32
+        )))
+    );
+}
+
+#[test]
+fn commit_fails_when_member_is_pool_supplier() {
+    let c = setup();
+    let pool = c.pool(0);
+    // Even if supplier is also verified as a Trader
+    c.verify(&c.supplier, Role::Trader);
+    let err = c.gb.try_commit(&c.supplier, &pool, &10).err();
+    assert_eq!(
+        err,
+        Some(Ok(soroban_sdk::Error::from_contract_error(
+            group_buy::Error::SupplierIsParty as u32
+        )))
+    );
 }

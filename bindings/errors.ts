@@ -78,6 +78,7 @@ export const GroupBuyErrors = {
   NotFinal: 344,
   SupplierIsParty: 345,
   DeadlineTooFar: 346,
+  OrganizerIsSupplier: 347,
 } as const;
 
 export type GroupBuyErrorCode = (typeof GroupBuyErrors)[keyof typeof GroupBuyErrors];

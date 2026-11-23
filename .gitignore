@@ -1,4 +1,5 @@
 /target
+.build/
 .env
 *.swp
 node_modules/

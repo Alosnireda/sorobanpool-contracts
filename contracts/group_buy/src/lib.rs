@@ -64,6 +64,7 @@ pub enum Error {
     Overflow = 343,
     NotFinal = 344,
     SupplierIsParty = 345,
+    OrganizerIsSupplier = 347,
 }
 
 #[contracttype]
@@ -454,11 +455,13 @@ impl GroupBuy {
         require_paused_not(&env, symbol_short!("create"));
         let c = cfg(&env);
         let params = c.get_params();
+        if terms.supplier == organizer {
+            fail::<()>(&env, Error::OrganizerIsSupplier);
+        }
         if !validate_tiers(&terms.tiers, terms.moq, terms.max_units)
             || terms.max_per_member == 0
             || terms.max_per_member > terms.max_units
             || terms.lead_time_secs == 0
-            || terms.supplier == organizer
         {
             fail::<()>(&env, Error::BadTerms);
         }
