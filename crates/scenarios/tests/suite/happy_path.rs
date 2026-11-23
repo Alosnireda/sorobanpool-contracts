@@ -1,5 +1,5 @@
 use scenarios::*;
-use sp_common::types::PoolState;
+use sp_common::types::{PoolState, Tier};
 
 #[test]
 fn full_flow_with_tier_refunds_leaves_no_dust() {
@@ -143,3 +143,111 @@ fn close_early_and_auto_fill_at_max() {
     c.gb.commit(&t[1], &pool2, &250);
     assert_eq!(c.gb.pool(&pool2).state, PoolState::Filled);
 }
+
+#[test]
+fn early_release_at_exact_weight_threshold_and_rounding() {
+    let c = setup();
+    let mut terms = c.terms();
+    terms.moq = 10;
+    terms.max_units = 10;
+    terms.max_per_member = 5;
+    terms.tiers = soroban_sdk::vec![
+        &c.env,
+        Tier {
+            min_units: 10,
+            unit_price: USDC,
+        },
+    ];
+    let dl = c.now() + 2 * DAY;
+    let pool = c
+        .gb
+        .create_pool(&c.organizer, &terms, &h(&c.env, 7), &0, &None, &dl);
+
+    let m1 = c.trader();
+    let m2 = c.trader();
+    let m3 = c.trader();
+
+    c.gb.commit(&m1, &pool, &5);
+    c.gb.commit(&m2, &pool, &1);
+    c.gb.commit(&m3, &pool, &4);
+
+    // Pool reaches 10 units -> Filled
+    assert_eq!(c.gb.pool(&pool).state, PoolState::Filled);
+
+    // Deliver
+    c.deliver(pool, 10);
+    assert_eq!(c.gb.pool(&pool).state, PoolState::Delivered);
+
+    // Confirmation window is still active:
+    // With 0 confirmed pickups: settle fails with SettleTooEarly
+    let err0 = c.gb.try_settle(&pool).err();
+    assert_eq!(
+        err0,
+        Some(Ok(soroban_sdk::Error::from_contract_error(
+            group_buy::Error::SettleTooEarly as u32
+        )))
+    );
+
+    // 5 confirmed units (one unit below 60% of 10) fails with SettleTooEarly
+    c.gb.confirm_pickup(&m1, &pool);
+    let err5 = c.gb.try_settle(&pool).err();
+    assert_eq!(
+        err5,
+        Some(Ok(soroban_sdk::Error::from_contract_error(
+            group_buy::Error::SettleTooEarly as u32
+        )))
+    );
+
+    // 6 confirmed units (exactly 60% of 10: 5 + 1) succeeds
+    c.gb.confirm_pickup(&m2, &pool);
+    assert!(c.gb.try_settle(&pool).is_ok());
+    assert_eq!(c.gb.pool(&pool).state, PoolState::Settled);
+
+    // --- 7-unit pool to test rounding ---
+    let mut terms7 = c.terms();
+    terms7.moq = 7;
+    terms7.max_units = 7;
+    terms7.max_per_member = 3;
+    terms7.tiers = soroban_sdk::vec![
+        &c.env,
+        Tier {
+            min_units: 7,
+            unit_price: USDC,
+        },
+    ];
+    let pool7 = c
+        .gb
+        .create_pool(&c.organizer, &terms7, &h(&c.env, 8), &0, &None, &dl);
+
+    let u1 = c.trader();
+    let u2 = c.trader();
+    let u3 = c.trader();
+    let u4 = c.trader();
+
+    c.gb.commit(&u1, &pool7, &3);
+    c.gb.commit(&u2, &pool7, &1);
+    c.gb.commit(&u3, &pool7, &1);
+    c.gb.commit(&u4, &pool7, &2);
+
+    assert_eq!(c.gb.pool(&pool7).state, PoolState::Filled);
+    c.deliver(pool7, 7);
+    assert_eq!(c.gb.pool(&pool7).state, PoolState::Delivered);
+
+    // 60% of 7 is 4.2 units.
+    // 4 confirmed units (3 + 1 = 4, 40_000 < 42_000) is one unit below rounded threshold (5 units)
+    c.gb.confirm_pickup(&u1, &pool7);
+    c.gb.confirm_pickup(&u2, &pool7);
+    let err4 = c.gb.try_settle(&pool7).err();
+    assert_eq!(
+        err4,
+        Some(Ok(soroban_sdk::Error::from_contract_error(
+            group_buy::Error::SettleTooEarly as u32
+        )))
+    );
+
+    // 5 confirmed units (3 + 1 + 1 = 5, 50_000 >= 42_000) reaches the rounded-up 60% threshold
+    c.gb.confirm_pickup(&u3, &pool7);
+    assert!(c.gb.try_settle(&pool7).is_ok());
+    assert_eq!(c.gb.pool(&pool7).state, PoolState::Settled);
+}
+

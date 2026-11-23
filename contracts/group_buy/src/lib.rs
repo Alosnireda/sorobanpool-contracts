@@ -978,7 +978,15 @@ impl GroupBuy {
     }
 
     /// Permissionless once the confirmation window has closed, or early when members holding
-    /// `early_release_weight_bp` of units have confirmed pickup. Frozen amounts stay in escrow.
+    /// `early_release_weight_bp` of units have confirmed pickup.
+    ///
+    /// Rounding: The early release threshold is evaluated as
+    /// `(picked_units as u64) * 10_000 >= (early_release_weight_bp as u64) * (total_units as u64)`.
+    /// When `(early_release_weight_bp * total_units)` does not divide evenly by 10,000,
+    /// this comparison effectively rounds up (ceiling) the number of required confirmed units.
+    /// For example, in a 7-unit pool at 60% (6000 bp), 60% of 7 is 4.2 units; integer comparison
+    /// requires 5 confirmed units (50,000 >= 42,000), while 4 confirmed units fails (40,000 < 42,000).
+    /// Frozen amounts stay in escrow.
     pub fn settle(env: Env, pool_id: u64) {
         let params = cfg(&env).get_params();
         let mut pool = load_pool(&env, pool_id);
