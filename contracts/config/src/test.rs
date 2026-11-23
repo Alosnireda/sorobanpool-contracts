@@ -60,7 +60,7 @@ fn hard_caps_view_matches_validation_limits() {
 
 #[test]
 fn pause_scopes_and_guardian() {
-    let (_e, c, admin) = setup();
+    let (e, c, admin) = setup();
     let guardian = Address::generate(&e);
     c.set_guardian(&guardian);
     let commit = symbol_short!("commit");
@@ -95,7 +95,7 @@ fn registries() {
 
 #[test]
 fn snapshot_matches_individual_views() {
-    let (_e, c, admin) = setup();
+    let (e, c, admin) = setup();
     // un-paused baseline: snapshot params equal get_params, all flags false
     let snap = c.snapshot();
     let p = c.get_params();

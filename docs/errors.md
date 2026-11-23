@@ -77,6 +77,7 @@ modes.
 | 343 | group_buy | Overflow |
 | 344 | group_buy | NotFinal |
 | 345 | group_buy | SupplierIsParty |
+| 347 | group_buy | OrganizerIsSupplier |
 | 400 | disputes | NotInitialised |
 | 401 | disputes | NotAParty |
 | 402 | disputes | BadClaim |

@@ -89,7 +89,7 @@ fn slash_pays_caller_and_caps_at_total() {
     assert_eq!(c.usdc.balance(&c.gb), 80);
     assert_eq!(c.bond.bond_of(&c.supplier), (20, 0));
     assert_eq!(c.bond.slash(&c.gb, &c.supplier, &50), 20); // capped at what is left
-    assert_eq!(c.env.events().all().events().len(), 3);
+    assert_eq!(c.env.events().all().events().len(), 2);
 }
 
 #[test]

@@ -17,7 +17,8 @@ pub enum Error {
     NotGroupBuy = 502,
     NotInitialised = 503,
     ReleaseExceedsReserved = 504,
-    WithdrawCooldown = 505,
+    Overflow = 505,
+    WithdrawCooldown = 506,
 }
 
 #[contracttype]
@@ -80,17 +81,6 @@ impl SupplierBond {
         if amount <= 0 {
             panic_with_error!(&env, Error::InvalidAmount);
         }
-        let cooldown = cfg(&env).get_params().bond_withdraw_cooldown_secs;
-        let last_slashed_at: u64 = env
-            .storage()
-            .persistent()
-            .get(&Key::LastSlashed(supplier.clone()))
-            .unwrap_or(0);
-        if last_slashed_at > 0
-            && env.ledger().timestamp() < last_slashed_at.saturating_add(cooldown)
-        {
-            panic_with_error!(&env, Error::WithdrawCooldown);
-        }
         let mut b = load(&env, &supplier);
         b.total = b
             .total
@@ -108,6 +98,16 @@ impl SupplierBond {
     /// Only the free part of the bond (total minus outstanding advances).
     pub fn withdraw(env: Env, supplier: Address, amount: i128) {
         supplier.require_auth();
+        let cooldown = cfg(&env).get_params().bond_withdraw_cooldown_secs;
+        let last_slashed_at: Option<u64> = env
+            .storage()
+            .persistent()
+            .get(&Key::LastSlashed(supplier.clone()));
+        if let Some(t) = last_slashed_at {
+            if env.ledger().timestamp() < t.saturating_add(cooldown) {
+                panic_with_error!(&env, Error::WithdrawCooldown);
+            }
+        }
         let mut b = load(&env, &supplier);
         if amount <= 0 {
             panic_with_error!(&env, Error::InvalidAmount);

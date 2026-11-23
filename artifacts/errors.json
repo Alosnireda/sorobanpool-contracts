@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "contractsVersion": "49de331",
+  "contractsVersion": "a8cfea4",
   "errors": [
     {
       "code": 100,
@@ -53,6 +53,11 @@
       "name": "TooManyAttestors"
     },
     {
+      "code": 110,
+      "contract": "config",
+      "name": "TooManyCategories"
+    },
+    {
       "code": 200,
       "contract": "registry",
       "name": "AlreadyRegistered"
@@ -86,6 +91,11 @@
       "code": 206,
       "contract": "registry",
       "name": "BadStatus"
+    },
+    {
+      "code": 207,
+      "contract": "registry",
+      "name": "BatchTooLarge"
     },
     {
       "code": 300,
@@ -323,6 +333,11 @@
       "name": "DeadlineTooFar"
     },
     {
+      "code": 347,
+      "contract": "group_buy",
+      "name": "OrganizerIsSupplier"
+    },
+    {
       "code": 400,
       "contract": "disputes",
       "name": "NotInitialised"
@@ -413,6 +428,16 @@
       "name": "ReleaseExceedsReserved"
     },
     {
+      "code": 505,
+      "contract": "supplier_bond",
+      "name": "Overflow"
+    },
+    {
+      "code": 506,
+      "contract": "supplier_bond",
+      "name": "WithdrawCooldown"
+    },
+    {
       "code": 600,
       "contract": "reputation",
       "name": "NotAuthorizedCaller"
@@ -426,6 +451,21 @@
       "code": 602,
       "contract": "reputation",
       "name": "NotInitialised"
+    },
+    {
+      "code": 603,
+      "contract": "reputation",
+      "name": "InvalidCorrection"
+    },
+    {
+      "code": 604,
+      "contract": "reputation",
+      "name": "CorrectionTooLarge"
+    },
+    {
+      "code": 605,
+      "contract": "reputation",
+      "name": "CorrectionUnderflow"
     },
     {
       "code": 700,
@@ -451,6 +491,11 @@
       "code": 704,
       "contract": "smart_wallet",
       "name": "BadCredentialId"
+    },
+    {
+      "code": 705,
+      "contract": "smart_wallet",
+      "name": "SignerNotActive"
     }
   ]
 }

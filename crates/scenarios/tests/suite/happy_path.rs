@@ -1,5 +1,5 @@
 use scenarios::*;
-use sp_common::types::PoolState;
+use sp_common::types::{PoolState, Tier};
 
 #[test]
 fn full_flow_with_tier_refunds_leaves_no_dust() {
@@ -143,3 +143,196 @@ fn close_early_and_auto_fill_at_max() {
     c.gb.commit(&t[1], &pool2, &250);
     assert_eq!(c.gb.pool(&pool2).state, PoolState::Filled);
 }
+
+#[test]
+fn early_release_at_exact_weight_threshold_and_rounding() {
+    let c = setup();
+    let mut terms = c.terms();
+    terms.moq = 10;
+    terms.max_units = 10;
+    terms.max_per_member = 5;
+    terms.tiers = soroban_sdk::vec![
+        &c.env,
+        Tier {
+            min_units: 10,
+            unit_price: USDC,
+        },
+    ];
+    let dl = c.now() + 2 * DAY;
+    let pool = c
+        .gb
+        .create_pool(&c.organizer, &terms, &h(&c.env, 7), &0, &None, &dl);
+
+    let m1 = c.trader();
+    let m2 = c.trader();
+    let m3 = c.trader();
+
+    c.gb.commit(&m1, &pool, &5);
+    c.gb.commit(&m2, &pool, &1);
+    c.gb.commit(&m3, &pool, &4);
+
+    // Pool reaches 10 units -> Filled
+    assert_eq!(c.gb.pool(&pool).state, PoolState::Filled);
+
+    // Deliver
+    c.deliver(pool, 10);
+    assert_eq!(c.gb.pool(&pool).state, PoolState::Delivered);
+
+    // Confirmation window is still active:
+    // With 0 confirmed pickups: settle fails with SettleTooEarly
+    let err0 = c.gb.try_settle(&pool).err();
+    assert_eq!(
+        err0,
+        Some(Ok(soroban_sdk::Error::from_contract_error(
+            group_buy::Error::SettleTooEarly as u32
+        )))
+    );
+
+    // 5 confirmed units (one unit below 60% of 10) fails with SettleTooEarly
+    c.gb.confirm_pickup(&m1, &pool);
+    let err5 = c.gb.try_settle(&pool).err();
+    assert_eq!(
+        err5,
+        Some(Ok(soroban_sdk::Error::from_contract_error(
+            group_buy::Error::SettleTooEarly as u32
+        )))
+    );
+
+    // 6 confirmed units (exactly 60% of 10: 5 + 1) succeeds
+    c.gb.confirm_pickup(&m2, &pool);
+    assert!(c.gb.try_settle(&pool).is_ok());
+    assert_eq!(c.gb.pool(&pool).state, PoolState::Settled);
+
+    // --- 7-unit pool to test rounding ---
+    let mut terms7 = c.terms();
+    terms7.moq = 7;
+    terms7.max_units = 7;
+    terms7.max_per_member = 3;
+    terms7.tiers = soroban_sdk::vec![
+        &c.env,
+        Tier {
+            min_units: 7,
+            unit_price: USDC,
+        },
+    ];
+    let pool7 = c
+        .gb
+        .create_pool(&c.organizer, &terms7, &h(&c.env, 8), &0, &None, &dl);
+
+    let u1 = c.trader();
+    let u2 = c.trader();
+    let u3 = c.trader();
+    let u4 = c.trader();
+
+    c.gb.commit(&u1, &pool7, &3);
+    c.gb.commit(&u2, &pool7, &1);
+    c.gb.commit(&u3, &pool7, &1);
+    c.gb.commit(&u4, &pool7, &2);
+
+    assert_eq!(c.gb.pool(&pool7).state, PoolState::Filled);
+    c.deliver(pool7, 7);
+    assert_eq!(c.gb.pool(&pool7).state, PoolState::Delivered);
+
+    // 60% of 7 is 4.2 units.
+    // 4 confirmed units (3 + 1 = 4, 40_000 < 42_000) is one unit below rounded threshold (5 units)
+    c.gb.confirm_pickup(&u1, &pool7);
+    c.gb.confirm_pickup(&u2, &pool7);
+    let err4 = c.gb.try_settle(&pool7).err();
+    assert_eq!(
+        err4,
+        Some(Ok(soroban_sdk::Error::from_contract_error(
+            group_buy::Error::SettleTooEarly as u32
+        )))
+    );
+
+    // 5 confirmed units (3 + 1 + 1 = 5, 50_000 >= 42_000) reaches the rounded-up 60% threshold
+    c.gb.confirm_pickup(&u3, &pool7);
+    assert!(c.gb.try_settle(&pool7).is_ok());
+    assert_eq!(c.gb.pool(&pool7).state, PoolState::Settled);
+}
+
+#[test]
+fn increase_across_price_tier_boundary_charges_pre_tier_ceiling_and_refunds_difference() {
+    let c = setup();
+    let pool = c.pool(0);
+
+    let a = c.trader();
+    let b = c.trader();
+
+    // 1. Member A commits 100 units. Pool reaches MOQ (100 units, Tier 1: 1.00 USDC).
+    // Charged at Tier 1 ceiling price: 100 * 1.00 = 100 USDC.
+    c.gb.commit(&a, &pool, &100);
+    assert_eq!(c.gb.commitment(&pool, &a).unwrap().paid, 100 * USDC);
+    assert_eq!(c.gb.pool(&pool).total_units, 100);
+
+    // 2. Member B commits 40 units while pool is in Tier 1 (100..200 units).
+    // Pre-commit total is 100 (Tier 1 ceiling price: 1.00 USDC).
+    // Charged: 40 * 1.00 = 40 USDC. Pool total becomes 140 (still Tier 1).
+    c.gb.commit(&b, &pool, &40);
+    assert_eq!(c.gb.commitment(&pool, &b).unwrap().paid, 40 * USDC);
+    assert_eq!(c.gb.pool(&pool).total_units, 140);
+
+    // 3. Member B increases by 70 units:
+    // Moves total units from 140 (Tier 1) to 210 (Tier 2: 200..400 units, 0.90 USDC).
+    // Pre-increase tier is Tier 1, with ceiling price 1.00 USDC.
+    // Charged amount must equal extra_units x ceiling price of pre-increase tier = 70 x 1.00 = 70 USDC.
+    let charged = c.gb.increase(&b, &pool, &70);
+    assert_eq!(charged, 70 * USDC);
+
+    // Verify Member B commitment state: 110 units, 110 USDC paid
+    let b_commit = c.gb.commitment(&pool, &b).unwrap();
+    assert_eq!(b_commit.units, 110);
+    assert_eq!(b_commit.paid, 110 * USDC);
+
+    // 4. Assert escrow coverage holds after the increase:
+    let p = c.gb.pool(&pool);
+    assert_eq!(p.total_units, 210);
+    assert_eq!(p.total_paid, 210 * USDC);
+    assert_eq!(p.escrow_balance, 210 * USDC);
+    assert_eq!(c.bal(&c.gb.address), p.escrow_balance);
+
+    // Escrow balance covers total_units * ceiling_price
+    let ceiling_p = sp_common::math::ceiling_price(&p.terms.tiers, p.total_units).unwrap();
+    assert!(p.escrow_balance >= (p.total_units as i128) * ceiling_p);
+
+    // Escrow invariant holds
+    let (expected, actual) = c.gb.escrow_invariant(&pool);
+    assert!(
+        actual >= expected,
+        "escrow invariant breached after increase: actual={actual} expected={expected}"
+    );
+
+    // 5. Close pool and verify final price is Tier 2 price (0.90 USDC)
+    c.gb.close_early(&c.organizer, &pool);
+    let p_filled = c.gb.pool(&pool);
+    assert_eq!(p_filled.state, PoolState::Filled);
+    assert_eq!(p_filled.final_price, USDC * 9 / 10);
+
+    // 6. Deliver all units and members confirm pickup
+    c.deliver(pool, 210);
+    c.gb.confirm_pickup(&a, &pool);
+    c.gb.confirm_pickup(&b, &pool);
+
+    // 7. Settle the pool
+    c.gb.settle(&pool);
+    assert_eq!(c.gb.pool(&pool).state, PoolState::Settled);
+
+    // 8. Final refund equals paid - (units x final tier price) for both:
+    // Earlier member A: paid 100 USDC for 100 units @ final price 0.90 USDC -> refund = 100 - 90 = 10 USDC
+    let final_price = p_filled.final_price;
+    let expected_refund_a = 100 * USDC - ((100 as i128) * final_price);
+    let refund_a = c.gb.claim_refund(&a, &pool);
+    assert_eq!(refund_a, expected_refund_a);
+    assert_eq!(refund_a, 10 * USDC);
+
+    // Increasing member B: paid 110 USDC for 110 units @ final price 0.90 USDC -> refund = 110 - 99 = 11 USDC
+    let expected_refund_b = 110 * USDC - ((110 as i128) * final_price);
+    let refund_b = c.gb.claim_refund(&b, &pool);
+    assert_eq!(refund_b, expected_refund_b);
+    assert_eq!(refund_b, 11 * USDC);
+
+    // Escrow is fully settled with no dust remaining
+    assert_eq!(c.bal(&c.gb.address), 0);
+}
+
+

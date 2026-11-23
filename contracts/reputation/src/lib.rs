@@ -182,7 +182,7 @@ impl Reputation {
         *counter_ref -= delta;
         env.storage().persistent().set(&k, &s);
         bump_persistent(&env, &k);
-        emit(&env, C, Symbol::new(&env, "rep_corrected"), subject, (role, counter, delta, reason));
+        emit(&env, C, events::rep_corrected(&env), subject, (role, counter, delta, reason));
     }
 
     pub fn stats(env: Env, subject: Address, role: Role) -> RepStats {
