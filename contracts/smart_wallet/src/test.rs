@@ -207,6 +207,7 @@ fn signers_can_be_added_and_removed_but_never_the_last() {
     assert!(c
         .try_add_signer(&phone2.id, &phone2.public_key(&env))
         .is_err()); // duplicate
+    env.ledger().set_sequence_number(env.ledger().sequence() + DEFAULT_ACTIVATION_DELAY_LEDGERS);
     let payload = BytesN::<32>::random(&env);
     let sig = phone2.assert(&env, &payload.to_array(), UP_UV, "webauthn.get");
     assert_eq!(check(&env, &wallet, &payload, sig), Ok(()));

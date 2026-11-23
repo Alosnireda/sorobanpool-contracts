@@ -1,6 +1,9 @@
 /target
+.build/
 .env
 *.swp
 node_modules/
 test_snapshots/
 deployments/local.json
+__pycache__/
+*.pyc

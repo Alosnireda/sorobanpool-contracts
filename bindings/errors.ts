@@ -10,6 +10,9 @@ export const ConfigErrors = {
   NoGuardian: 105,
   NoAdminProposal: 106,
   NotProposedAdmin: 107,
+  TooManyArbiters: 108,
+  TooManyAttestors: 109,
+  TooManyCategories: 110,
 } as const;
 
 export type ConfigErrorCode = (typeof ConfigErrors)[keyof typeof ConfigErrors];
@@ -22,6 +25,7 @@ export const RegistryErrors = {
   NotAuthorizedCaller: 204,
   InvalidLevel: 205,
   BadStatus: 206,
+  BatchTooLarge: 207,
 } as const;
 
 export type RegistryErrorCode = (typeof RegistryErrors)[keyof typeof RegistryErrors];
@@ -74,6 +78,7 @@ export const GroupBuyErrors = {
   NotFinal: 344,
   SupplierIsParty: 345,
   DeadlineTooFar: 346,
+  OrganizerIsSupplier: 347,
 } as const;
 
 export type GroupBuyErrorCode = (typeof GroupBuyErrors)[keyof typeof GroupBuyErrors];
@@ -102,6 +107,8 @@ export const SupplierBondErrors = {
   NotGroupBuy: 502,
   NotInitialised: 503,
   ReleaseExceedsReserved: 504,
+  Overflow: 505,
+  WithdrawCooldown: 506,
 } as const;
 
 export type SupplierBondErrorCode = (typeof SupplierBondErrors)[keyof typeof SupplierBondErrors];
@@ -110,6 +117,9 @@ export const ReputationErrors = {
   NotAuthorizedCaller: 600,
   UnknownEvent: 601,
   NotInitialised: 602,
+  InvalidCorrection: 603,
+  CorrectionTooLarge: 604,
+  CorrectionUnderflow: 605,
 } as const;
 
 export type ReputationErrorCode = (typeof ReputationErrors)[keyof typeof ReputationErrors];
@@ -120,6 +130,7 @@ export const SmartWalletErrors = {
   LastSigner: 702,
   TooManySigners: 703,
   BadCredentialId: 704,
+  SignerNotActive: 705,
 } as const;
 
 export type SmartWalletErrorCode = (typeof SmartWalletErrors)[keyof typeof SmartWalletErrors];

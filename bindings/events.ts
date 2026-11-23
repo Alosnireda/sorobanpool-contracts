@@ -71,6 +71,13 @@ export interface RegistryUserSusEvent {
   data: { role: string; reason: string };
 }
 
+export interface RegistryUserCloseEvent {
+  contract: 'registry';
+  event: 'user_close';
+  key: string | bigint;
+  data: Record<string, unknown>;
+}
+
 export interface RegistryUserUnsEvent {
   contract: 'registry';
   event: 'user_uns';
@@ -83,6 +90,13 @@ export interface RepRepUpdEvent {
   event: 'rep_upd';
   key: string;
   data: { role: string; event: string; tier: string | number };
+}
+
+export interface RepRepCorrectedEvent {
+  contract: 'rep';
+  event: 'rep_corrected';
+  key: string | bigint;
+  data: Record<string, unknown>;
 }
 
 export interface BondDepositEvent {
@@ -292,8 +306,10 @@ export type ContractEvent =
   | RegistryUserAttEvent
   | RegistryUserRevEvent
   | RegistryUserSusEvent
+  | RegistryUserCloseEvent
   | RegistryUserUnsEvent
   | RepRepUpdEvent
+  | RepRepCorrectedEvent
   | BondDepositEvent
   | BondWithdrawEvent
   | BondSlashedEvent

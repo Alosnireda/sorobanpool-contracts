@@ -1,6 +1,7 @@
 use super::*;
 use config::{Config, ConfigClient};
 use soroban_sdk::testutils::Address as _;
+use soroban_sdk::vec;
 
 struct Ctx {
     env: Env,
@@ -128,7 +129,10 @@ fn statuses_preserve_order_and_are_bounded() {
     assert_eq!(statuses.get(0), Some(Status::Registered));
     assert_eq!(statuses.get(1), Some(Status::Suspended));
     assert_eq!(statuses.get(2), Some(Status::Unregistered));
-    let too_many = (0..65).map(|_| Address::generate(&c.env)).collect::<Vec<_>>();
+    let mut too_many = Vec::new(&c.env);
+    for _ in 0..65 {
+        too_many.push_back(Address::generate(&c.env));
+    }
     assert!(c.reg.try_statuses(&too_many, &Role::Trader).is_err());
 }
 

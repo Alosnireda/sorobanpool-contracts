@@ -64,6 +64,7 @@ pub enum Error {
     Overflow = 343,
     NotFinal = 344,
     SupplierIsParty = 345,
+    OrganizerIsSupplier = 347,
 }
 
 #[contracttype]
@@ -314,7 +315,11 @@ fn add_units(env: &Env, member: &Address, pool_id: u64, units: u32, is_increase:
     }
     let reg = registry(env);
     let st = reg.status(member, &Role::Trader);
-    if st != Status::Registered && st != Status::Verified {
+    let is_organizer = *member == pool.organizer;
+    let allowed = st == Status::Registered
+        || st == Status::Verified
+        || (is_organizer && reg.status(member, &Role::Organizer) == Status::Verified);
+    if !allowed {
         fail::<()>(env, Error::NotAllowedMember);
     }
     if let Some(cluster) = pool.cluster.clone() {
@@ -371,8 +376,16 @@ fn add_units(env: &Env, member: &Address, pool_id: u64, units: u32, is_increase:
     let price = ck(env, ceiling_price(&pool.terms.tiers, pool.total_units));
     let amount = ck(env, (units as i128).checked_mul(price));
     let new_paid = ck(env, c.paid.checked_add(amount));
-    let lvl = reg.level(member, &Role::Trader);
-    let rep_tier = reputation(env).tier(member, &Role::Trader);
+    let lvl = if is_organizer && st == Status::Unregistered {
+        reg.level(member, &Role::Organizer)
+    } else {
+        reg.level(member, &Role::Trader)
+    };
+    let rep_tier = if is_organizer && st == Status::Unregistered {
+        reputation(env).tier(member, &Role::Organizer)
+    } else {
+        reputation(env).tier(member, &Role::Trader)
+    };
     let trader_tier = if lvl == 0 {
         0
     } else if rep_tier >= 2 {
@@ -454,11 +467,13 @@ impl GroupBuy {
         require_paused_not(&env, symbol_short!("create"));
         let c = cfg(&env);
         let params = c.get_params();
+        if terms.supplier == organizer {
+            fail::<()>(&env, Error::OrganizerIsSupplier);
+        }
         if !validate_tiers(&terms.tiers, terms.moq, terms.max_units)
             || terms.max_per_member == 0
             || terms.max_per_member > terms.max_units
             || terms.lead_time_secs == 0
-            || terms.supplier == organizer
         {
             fail::<()>(&env, Error::BadTerms);
         }
@@ -580,6 +595,13 @@ impl GroupBuy {
         add_units(&env, &member, pool_id, units, false)
     }
 
+    /// Raises a member's commitment while the pool is Open.
+    ///
+    /// The extra units are charged at the ceiling price of the pre-increase tier
+    /// (the tier the pool is in before those units are added). If adding extra units
+    /// crosses a price tier boundary into a lower-priced tier, the extra units are
+    /// still charged at the pre-increase tier price now, and the difference is refunded
+    /// at settlement based on the final achieved tier price.
     pub fn increase(env: Env, member: Address, pool_id: u64, extra_units: u32) -> i128 {
         add_units(&env, &member, pool_id, extra_units, true)
     }
@@ -963,7 +985,15 @@ impl GroupBuy {
     }
 
     /// Permissionless once the confirmation window has closed, or early when members holding
-    /// `early_release_weight_bp` of units have confirmed pickup. Frozen amounts stay in escrow.
+    /// `early_release_weight_bp` of units have confirmed pickup.
+    ///
+    /// Rounding: The early release threshold is evaluated as
+    /// `(picked_units as u64) * 10_000 >= (early_release_weight_bp as u64) * (total_units as u64)`.
+    /// When `(early_release_weight_bp * total_units)` does not divide evenly by 10,000,
+    /// this comparison effectively rounds up (ceiling) the number of required confirmed units.
+    /// For example, in a 7-unit pool at 60% (6000 bp), 60% of 7 is 4.2 units; integer comparison
+    /// requires 5 confirmed units (50,000 >= 42,000), while 4 confirmed units fails (40,000 < 42,000).
+    /// Frozen amounts stay in escrow.
     pub fn settle(env: Env, pool_id: u64) {
         let params = cfg(&env).get_params();
         let mut pool = load_pool(&env, pool_id);

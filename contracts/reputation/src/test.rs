@@ -66,7 +66,7 @@ fn registered_caller_without_auth_is_rejected() {
 
 #[test]
 fn authorised_registered_caller_records() {
-    let (env, c, gb) = setup();
+    let (env, c, gb, _) = setup();
     let who = Address::generate(&env);
     c.record(&gb, &who, &Role::Supplier, &symbol_short!("settled"));
     assert_eq!(c.stats(&who, &Role::Supplier).pools_settled, 1);
@@ -139,7 +139,7 @@ fn recording_at_u32_max_saturates() {
         pools_settled: u32::MAX,
         ..Default::default()
     };
-    env.as_contract(&c.address(), || {
+    env.as_contract(&c.address, || {
         env.storage()
             .persistent()
             .set(&Key::Stats(who.clone(), Role::Supplier), &seeded);
@@ -160,7 +160,7 @@ fn tier_threshold_boundaries_are_explicit() {
         (SUPPLIER_S2_SETTLED - 1, 0, 100, 0, 1),
         (SUPPLIER_S2_SETTLED, 0, 90, 10, 2),
         (1_000, LOST_BP_LIMIT / 10 - 1, ON_TIME_BP_LIMIT / 10, 100, 2),
-        (1_000, LOST_BP_LIMIT / 10, ON_TIME_BP_LIMIT / 10, 100, 1),
+        (1_000, LOST_BP_LIMIT / 10, ON_TIME_BP_LIMIT / 10, 100, 0),
         (1_000, 0, ON_TIME_BP_LIMIT / 10 - 1, 101, 1),
         (1_000, 0, ON_TIME_BP_LIMIT / 10, 100, 2),
     ];
@@ -179,7 +179,7 @@ fn tier_threshold_boundaries_are_explicit() {
         (ORGANIZER_S2_SETTLED - 1, 0, 1),
         (ORGANIZER_S2_SETTLED, 0, 2),
         (1_000, LOST_BP_LIMIT / 10 - 1, 2),
-        (1_000, LOST_BP_LIMIT / 10, 1),
+        (1_000, LOST_BP_LIMIT / 10, 0),
     ];
     for (settled, lost, expected) in organizer_cases {
         let stats = RepStats {
@@ -191,13 +191,14 @@ fn tier_threshold_boundaries_are_explicit() {
     }
 
     let trader_cases = [
-        (TRADER_S2_SETTLED - 1, 0),
-        (TRADER_S2_SETTLED, 2),
-        (TRADER_S2_SETTLED, 0),
+        (TRADER_S2_SETTLED - 1, 0, 0),
+        (TRADER_S2_SETTLED, 0, 2),
+        (TRADER_S2_SETTLED, 1, 0),
     ];
-    for (settled, expected) in trader_cases {
+    for (settled, lost, expected) in trader_cases {
         let stats = RepStats {
             pools_settled: settled,
+            disputes_lost: lost,
             ..Default::default()
         };
         assert_eq!(compute_tier(Role::Trader, &stats, 0), expected);
