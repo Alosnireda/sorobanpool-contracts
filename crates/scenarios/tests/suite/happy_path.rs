@@ -335,4 +335,136 @@ fn increase_across_price_tier_boundary_charges_pre_tier_ceiling_and_refunds_diff
     assert_eq!(c.bal(&c.gb.address), 0);
 }
 
+// Issue #53: members may claim while the keeper advances through refund pages.
+#[test]
+fn claim_refund_and_push_refunds_interleave_without_double_payment() {
+    let c = setup();
+    let pool = c.pool(0);
+    let members: Vec<_> = (0..12).map(|_| c.trader()).collect();
+    let initial_balances: Vec<i128> = members.iter().map(|m| c.bal(m)).collect();
+    let starting_total = initial_balances.iter().sum::<i128>() + c.bal(&c.gb.address);
 
+    // 1 + 2 + ... + 12 = 78 units: below the 100-unit MOQ, so closing
+    // expires the pool and each of the 12 members is owed their full deposit.
+    let mut deposits = Vec::new();
+    for (index, member) in members.iter().enumerate() {
+        let units = u32::try_from(index + 1).unwrap();
+        deposits.push(c.gb.commit(member, &pool, &units));
+    }
+    let total_deposited: i128 = deposits.iter().sum();
+    assert_eq!(total_deposited, 78 * USDC);
+    assert_eq!(c.bal(&c.gb.address), total_deposited);
+
+    c.advance(3 * DAY);
+    c.gb.close(&pool);
+    assert_eq!(c.gb.pool(&pool).state, PoolState::Expired);
+    assert_eq!(c.gb.pool(&pool).owed_total, total_deposited);
+
+    // Check each member's refund ledger AND their real token balance at
+    // every interleaving boundary. An individual may receive their deposit
+    // exactly once, whether by claim or by keeper batch.
+    let assert_state = |paid: &[bool; 12]| {
+        let mut refunded_total = 0i128;
+        let mut held_by_members = 0i128;
+        for (index, member) in members.iter().enumerate() {
+            let expected_refund = if paid[index] { deposits[index] } else { 0 };
+            let commitment = c.gb.commitment(&pool, member).unwrap();
+            assert_eq!(
+                commitment.refund_claimed, expected_refund,
+                "refund_claimed mismatch for member {index}"
+            );
+            assert_eq!(
+                c.gb.refundable_of(&pool, member),
+                deposits[index] - expected_refund,
+                "outstanding refund mismatch for member {index}"
+            );
+            let balance = c.bal(member);
+            assert_eq!(
+                balance,
+                initial_balances[index] - deposits[index] + expected_refund,
+                "member {index} was underpaid or paid twice"
+            );
+            refunded_total += expected_refund;
+            held_by_members += balance;
+        }
+        let pool_state = c.gb.pool(&pool);
+        assert_eq!(pool_state.refunds_paid, refunded_total);
+        assert_eq!(pool_state.escrow_balance, total_deposited - refunded_total);
+        assert_eq!(c.bal(&c.gb.address), pool_state.escrow_balance);
+        assert_eq!(
+            held_by_members + c.bal(&c.gb.address),
+            starting_total,
+            "USDC conservation must hold throughout the interleaving"
+        );
+        let (expected, actual) = c.gb.escrow_invariant(&pool);
+        assert_eq!(expected, actual);
+    };
+
+    let mut paid = [false; 12];
+    assert_state(&paid);
+
+    // Three members claim before the keeper visits any entries.
+    for index in [0, 2, 8] {
+        assert_eq!(c.gb.claim_refund(&members[index], &pool), deposits[index]);
+        paid[index] = true;
+    }
+    assert_state(&paid);
+
+    // The keeper visits positions 0–3, skipping the already-paid 0 and 2.
+    // Its return value counts visited entries, NOT token transfers.
+    assert_eq!(c.gb.push_refunds(&pool, &4), 4);
+    for index in [1, 3] {
+        paid[index] = true;
+    }
+    assert_state(&paid);
+    assert_eq!(c.gb.pool(&pool).refund_cursor, 4);
+
+    // Another three members claim while the keeper cursor is partway through.
+    // Exactly six of twelve members will have claimed manually.
+    for index in [4, 6, 10] {
+        assert_eq!(c.gb.claim_refund(&members[index], &pool), deposits[index]);
+        paid[index] = true;
+    }
+    assert_state(&paid);
+
+    // Re-claiming after a manual claim or after a keeper push must produce
+    // the precise contract error, not another transfer.
+    let nothing_to_claim = soroban_sdk::Error::from_contract_error(
+        group_buy::Error::NothingToClaim as u32,
+    );
+    for index in [0, 1, 2, 3, 4, 6, 8, 10] {
+        assert_eq!(
+            c.gb.try_claim_refund(&members[index], &pool),
+            Err(Ok(nothing_to_claim)),
+            "member {index} could claim a second refund"
+        );
+    }
+    assert_state(&paid);
+
+    // Continue through claimed and unclaimed entries in bounded batches.
+    assert_eq!(c.gb.push_refunds(&pool, &3), 3);
+    paid[5] = true; // indices 4 and 6 were already claimed
+    assert_state(&paid);
+
+    assert_eq!(c.gb.push_refunds(&pool, &3), 3);
+    paid[7] = true;
+    paid[9] = true; // index 8 was already claimed
+    assert_state(&paid);
+
+    assert_eq!(c.gb.push_refunds(&pool, &12), 2);
+    paid[11] = true; // index 10 was already claimed
+    assert_state(&paid);
+
+    assert!(paid.iter().all(|is_paid| *is_paid));
+    assert_eq!(c.gb.push_refunds(&pool, &12), 0);
+    for member in &members {
+        assert_eq!(c.gb.try_claim_refund(member, &pool), Err(Ok(nothing_to_claim)));
+    }
+    assert_state(&paid);
+
+    assert_eq!(c.gb.pool(&pool).refund_cursor, 12);
+    assert_eq!(c.gb.pool(&pool).refunds_paid, total_deposited);
+    assert_eq!(c.gb.refunds_pending(&pool), (0, 0));
+    assert_eq!(c.gb.sweep_dust(&pool), 0);
+    assert_eq!(c.bal(&c.gb.address), 0);
+}
