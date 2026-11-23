@@ -126,7 +126,7 @@ impl Registry {
         rec.level = 0;
         rec.ver_hash = None;
         save(&env, &user, &role, &rec);
-        emit(&env, C, Symbol::new(&env, "user_close"), user, (role, reason));
+        emit(&env, C, events::user_close(&env), user, (role, reason));
     }
 
     /// Writes a verification hash and level. Level 0 is not a verification.

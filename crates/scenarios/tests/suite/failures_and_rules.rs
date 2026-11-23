@@ -177,7 +177,7 @@ fn delivery_on_time_boundary_and_grace_are_tracked_separately() {
     assert_eq!((before.on_time, before.late), (1, 0));
     let exact = settled_delivery(0);
     assert_eq!((exact.on_time, exact.late), (1, 0));
-    let late = settled_delivery(DAY);
+    let late = settled_delivery(DAY as i64);
     assert_eq!((late.on_time, late.late), (0, 1));
 }
 
@@ -330,7 +330,7 @@ fn suspended_participants_keep_existing_pool_exits_but_not_new_activity() {
     let trader = c.trader();
     c.gb.commit(&trader, &pool, &10);
     c.reg.suspend(&c.admin, &trader, &Role::Trader, &symbol_short!("test"));
-    assert!(c.gb.try_commit(&c.trader(), &pool, &1).is_err());
+    assert!(c.gb.try_commit(&trader, &pool, &1).is_err());
     c.advance(3 * DAY);
     c.gb.close(&pool);
     assert_eq!(c.gb.claim_refund(&trader, &pool), 10 * USDC);

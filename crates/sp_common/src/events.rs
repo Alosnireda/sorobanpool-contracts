@@ -34,9 +34,19 @@ pub const USER_ATT: Symbol = symbol_short!("user_att");
 pub const USER_REV: Symbol = symbol_short!("user_rev");
 pub const USER_SUS: Symbol = symbol_short!("user_sus");
 pub const USER_UNS: Symbol = symbol_short!("user_uns");
+pub const USER_CLOSE_STR: &str = "user_close";
+
+pub fn user_close(env: &Env) -> Symbol {
+    Symbol::new(env, USER_CLOSE_STR)
+}
 
 // Reputation events
 pub const REP_UPD: Symbol = symbol_short!("rep_upd");
+pub const REP_CORRECTED_STR: &str = "rep_corrected";
+
+pub fn rep_corrected(env: &Env) -> Symbol {
+    Symbol::new(env, REP_CORRECTED_STR)
+}
 
 // Supplier bond events
 pub const DEPOSIT: Symbol = symbol_short!("deposit");
@@ -102,6 +112,7 @@ pub const ALL_EVENTS: &[&str] = &[
     "pool_new",
     "refund",
     "rejected",
+    "rep_corrected",
     "rep_upd",
     "settled",
     "shortfall",
@@ -110,6 +121,7 @@ pub const ALL_EVENTS: &[&str] = &[
     "unpaused",
     "upgraded",
     "user_att",
+    "user_close",
     "user_reg",
     "user_rev",
     "user_sus",

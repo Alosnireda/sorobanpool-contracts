@@ -272,6 +272,8 @@ fn advance_is_off_by_default_and_needs_bond() {
     c.fill_standard(pool);
     assert!(c.gb.try_accept(&c.supplier, &pool, &1000).is_err()); // disabled
     enable_advance(&c);
+    let pool = c.pool(0);
+    c.fill_standard(pool);
     assert!(c.gb.try_accept(&c.supplier, &pool, &1000).is_err()); // no bond posted
     assert!(c.gb.try_accept(&c.supplier, &pool, &2500).is_err()); // above tier limit
     c.bond.deposit(&c.supplier, &(100 * USDC));
@@ -315,6 +317,7 @@ fn failed_delivery_slashes_bond_so_members_are_made_whole() {
     c.advance(5 * DAY + 2 * DAY + 1);
     c.gb.fail_delivery(&pool);
     let advance = 420 * PRICE / 10;
+    assert!(format!("{:?}", c.env.events().all()).contains(&advance.to_string()));
     assert_eq!(c.bond.bond_of(&c.supplier), (100 * USDC - advance, 0));
     let mut total = 0;
     for m in &t {
@@ -322,7 +325,6 @@ fn failed_delivery_slashes_bond_so_members_are_made_whole() {
     }
     assert_eq!(total, 400 * USDC); // everyone gets everything back
     assert_eq!(c.bal(&c.gb.address), 0);
-    assert!(format!("{:?}", c.env.events().all()).contains(&advance.to_string()));
 }
 
 #[test]
