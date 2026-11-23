@@ -595,6 +595,13 @@ impl GroupBuy {
         add_units(&env, &member, pool_id, units, false)
     }
 
+    /// Raises a member's commitment while the pool is Open.
+    ///
+    /// The extra units are charged at the ceiling price of the pre-increase tier
+    /// (the tier the pool is in before those units are added). If adding extra units
+    /// crosses a price tier boundary into a lower-priced tier, the extra units are
+    /// still charged at the pre-increase tier price now, and the difference is refunded
+    /// at settlement based on the final achieved tier price.
     pub fn increase(env: Env, member: Address, pool_id: u64, extra_units: u32) -> i128 {
         add_units(&env, &member, pool_id, extra_units, true)
     }
